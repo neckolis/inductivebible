@@ -11,6 +11,9 @@ import { BottomToolbar } from "../components/BottomToolbar";
 import { Glossary } from "../components/Glossary";
 import { KeyboardShortcuts } from "../components/KeyboardShortcuts";
 import { NoteEditor } from "../components/NoteEditor";
+import { AuthScreen } from "../components/AuthScreen";
+import { ProfileMenu } from "../components/ProfileMenu";
+import { useAuthStore } from "../store/authStore";
 import { useSwipeNavigation } from "../lib/useSwipeNavigation";
 import type { BibleVerse } from "../lib/types";
 
@@ -26,6 +29,12 @@ export function BibleReader() {
   const [error, setError] = useState<string | null>(null);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
+  const initAuth = useAuthStore((s) => s.init);
+
+  useEffect(() => {
+    initAuth();
+  }, [initAuth]);
 
   const bookInfo = getBookById(bookNum);
   const maxChapters = bookInfo?.chapters ?? 1;
@@ -117,6 +126,7 @@ export function BibleReader() {
             <span className="uppercase tracking-wider font-medium">
               {translation}
             </span>
+            <ProfileMenu onSignIn={() => setAuthOpen(true)} />
           </div>
         </div>
       </header>
@@ -161,6 +171,7 @@ export function BibleReader() {
         book={bookNum}
         chapter={chapterNum}
       />
+      <AuthScreen open={authOpen} onClose={() => setAuthOpen(false)} />
     </div>
   );
 }

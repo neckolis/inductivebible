@@ -1,7 +1,19 @@
+import { createAuth } from "./auth";
+
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
   CACHE: KVNamespace;
+  BETTER_AUTH_SECRET: string;
+  BETTER_AUTH_URL: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+}
+
+/** Resolved identity: either an authenticated user or anonymous device */
+interface Owner {
+  userId: string | null;
+  deviceId: string | null;
 }
 
 export default {
@@ -10,6 +22,12 @@ export default {
 
     if (request.method === "OPTIONS") {
       return corsResponse(new Response(null, { status: 204 }));
+    }
+
+    // Auth routes — handled entirely by Better Auth
+    if (url.pathname.startsWith("/api/auth")) {
+      const auth = createAuth(env);
+      return auth.handler(request);
     }
 
     if (url.pathname.startsWith("/api/bible/")) {
@@ -23,6 +41,29 @@ export default {
     return env.ASSETS.fetch(request);
   },
 } satisfies ExportedHandler<Env>;
+
+// --------------- Owner resolution ---------------
+
+async function resolveOwner(request: Request, env: Env): Promise<Owner> {
+  // Try session-based auth first
+  try {
+    const auth = createAuth(env);
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (session?.user?.id) {
+      return { userId: session.user.id, deviceId: null };
+    }
+  } catch {
+    // No valid session — fall through to device ID
+  }
+
+  // Fall back to anonymous device ID
+  const deviceId = request.headers.get("X-Device-Id");
+  if (deviceId && deviceId.length <= 64) {
+    return { userId: null, deviceId };
+  }
+
+  return { userId: null, deviceId: null };
+}
 
 // --------------- Bible API proxy + KV cache ---------------
 
@@ -75,41 +116,119 @@ async function handleBibleAPI(url: URL, env: Env): Promise<Response> {
   }
 }
 
-// --------------- Data API (markings, symbols, memory) ---------------
+// --------------- Data API (markings, symbols, memory, notes) ---------------
 
 async function handleDataAPI(request: Request, url: URL, env: Env): Promise<Response> {
-  const deviceId = request.headers.get("X-Device-Id");
-  if (!deviceId || deviceId.length > 64) {
-    return corsJson({ error: "Missing or invalid X-Device-Id header" }, 401);
+  const owner = await resolveOwner(request, env);
+
+  if (!owner.userId && !owner.deviceId) {
+    return corsJson({ error: "Not authenticated. Sign in or provide X-Device-Id header." }, 401);
   }
 
-  // Ensure device exists
-  await env.DB.prepare(
-    "INSERT OR IGNORE INTO devices (id, created_at) VALUES (?, ?)"
-  ).bind(deviceId, Date.now()).run();
+  // Ensure device row exists for anonymous users
+  if (owner.deviceId) {
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO devices (id, created_at) VALUES (?, ?)"
+    ).bind(owner.deviceId, Date.now()).run();
+  }
 
   const path = url.pathname.replace("/api/data/", "");
 
+  // Device claiming: migrate anonymous data to user account
+  if (path === "claim-device" && request.method === "POST") {
+    return handleClaimDevice(request, owner, env);
+  }
+
+  // User info endpoint
+  if (path === "me") {
+    return handleMe(owner, env);
+  }
+
   if (path.startsWith("markings/")) {
-    return handleMarkings(request, path, deviceId, env);
+    return handleMarkings(request, path, owner, env);
   }
   if (path === "symbols") {
-    return handleSymbols(request, deviceId, env);
+    return handleSymbols(request, owner, env);
   }
   if (path === "memory") {
-    return handleMemory(request, deviceId, env);
+    return handleMemory(request, owner, env);
   }
   if (path.startsWith("notes/")) {
-    return handleNotes(request, path, deviceId, env);
+    return handleNotes(request, path, owner, env);
   }
 
   return corsJson({ error: "Not found" }, 404);
 }
 
+// --------------- User info ---------------
+
+async function handleMe(owner: Owner, env: Env): Promise<Response> {
+  if (!owner.userId) {
+    return corsJson({ user: null, deviceId: owner.deviceId });
+  }
+
+  const row = await env.DB.prepare(
+    'SELECT id, name, email, image FROM "user" WHERE id = ?'
+  ).bind(owner.userId).first();
+
+  return corsJson({ user: row ?? null });
+}
+
+// --------------- Device claiming ---------------
+
+async function handleClaimDevice(request: Request, owner: Owner, env: Env): Promise<Response> {
+  if (!owner.userId) {
+    return corsJson({ error: "Must be authenticated to claim device data" }, 401);
+  }
+
+  const body = await request.json() as { deviceId: string };
+  const deviceId = body.deviceId;
+  if (!deviceId) {
+    return corsJson({ error: "Missing deviceId" }, 400);
+  }
+
+  // Migrate all data from device_id to user_id
+  const tables = ["markings", "symbols", "memory", "notes"];
+  for (const table of tables) {
+    await env.DB.prepare(
+      `UPDATE ${table} SET user_id = ? WHERE device_id = ? AND user_id IS NULL`
+    ).bind(owner.userId, deviceId).run();
+  }
+
+  return corsJson({ ok: true, claimed: deviceId });
+}
+
+// --------------- Query helpers ---------------
+
+/** Build WHERE clause and params for owner-based queries */
+function ownerWhere(owner: Owner): { clause: string; param: string } {
+  if (owner.userId) {
+    return { clause: "user_id = ?", param: owner.userId };
+  }
+  return { clause: "device_id = ?", param: owner.deviceId! };
+}
+
+function ownerInsertFields(owner: Owner): { columns: string; values: string; params: string[] } {
+  if (owner.userId) {
+    return {
+      columns: "device_id, user_id",
+      values: "?, ?",
+      params: ["__user__", owner.userId],
+    };
+  }
+  return {
+    columns: "device_id",
+    values: "?",
+    params: [owner.deviceId!],
+  };
+}
+
+// --------------- Markings ---------------
+
 async function handleMarkings(
   request: Request,
   path: string,
-  deviceId: string,
+  owner: Owner,
   env: Env
 ): Promise<Response> {
   const parts = path.replace("markings/", "").split("/");
@@ -121,11 +240,12 @@ async function handleMarkings(
 
   const book = Number(bookStr);
   const chapter = Number(chapterStr);
+  const { clause, param } = ownerWhere(owner);
 
   if (request.method === "GET") {
     const row = await env.DB.prepare(
-      "SELECT data, updated_at FROM markings WHERE device_id = ? AND translation = ? AND book = ? AND chapter = ?"
-    ).bind(deviceId, translation, book, chapter).first();
+      `SELECT data, updated_at FROM markings WHERE ${clause} AND translation = ? AND book = ? AND chapter = ?`
+    ).bind(param, translation, book, chapter).first();
 
     return corsJson({
       data: row ? JSON.parse(row.data as string) : null,
@@ -136,29 +256,34 @@ async function handleMarkings(
   if (request.method === "PUT") {
     const body = await request.json() as { data: unknown };
     const now = Date.now();
+    const ins = ownerInsertFields(owner);
 
     await env.DB.prepare(
-      `INSERT INTO markings (device_id, translation, book, chapter, data, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO markings (${ins.columns}, translation, book, chapter, data, updated_at)
+       VALUES (${ins.values}, ?, ?, ?, ?, ?)
        ON CONFLICT(device_id, translation, book, chapter)
-       DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
-    ).bind(deviceId, translation, book, chapter, JSON.stringify(body.data), now).run();
+       DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at, user_id = COALESCE(excluded.user_id, user_id)`
+    ).bind(...ins.params, translation, book, chapter, JSON.stringify(body.data), now).run();
 
     return corsJson({ ok: true, updatedAt: now });
   }
 
   return corsJson({ error: "Method not allowed" }, 405);
 }
+
+// --------------- Symbols ---------------
 
 async function handleSymbols(
   request: Request,
-  deviceId: string,
+  owner: Owner,
   env: Env
 ): Promise<Response> {
+  const { clause, param } = ownerWhere(owner);
+
   if (request.method === "GET") {
     const row = await env.DB.prepare(
-      "SELECT data, updated_at FROM symbols WHERE device_id = ?"
-    ).bind(deviceId).first();
+      `SELECT data, updated_at FROM symbols WHERE ${clause}`
+    ).bind(param).first();
 
     return corsJson({
       data: row ? JSON.parse(row.data as string) : null,
@@ -169,29 +294,34 @@ async function handleSymbols(
   if (request.method === "PUT") {
     const body = await request.json() as { data: unknown };
     const now = Date.now();
+    const ins = ownerInsertFields(owner);
 
     await env.DB.prepare(
-      `INSERT INTO symbols (device_id, data, updated_at)
-       VALUES (?, ?, ?)
+      `INSERT INTO symbols (${ins.columns}, data, updated_at)
+       VALUES (${ins.values}, ?, ?)
        ON CONFLICT(device_id)
-       DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
-    ).bind(deviceId, JSON.stringify(body.data), now).run();
+       DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at, user_id = COALESCE(excluded.user_id, user_id)`
+    ).bind(...ins.params, JSON.stringify(body.data), now).run();
 
     return corsJson({ ok: true, updatedAt: now });
   }
 
   return corsJson({ error: "Method not allowed" }, 405);
 }
+
+// --------------- Memory ---------------
 
 async function handleMemory(
   request: Request,
-  deviceId: string,
+  owner: Owner,
   env: Env
 ): Promise<Response> {
+  const { clause, param } = ownerWhere(owner);
+
   if (request.method === "GET") {
     const row = await env.DB.prepare(
-      "SELECT data, updated_at FROM memory WHERE device_id = ?"
-    ).bind(deviceId).first();
+      `SELECT data, updated_at FROM memory WHERE ${clause}`
+    ).bind(param).first();
 
     return corsJson({
       data: row ? JSON.parse(row.data as string) : null,
@@ -202,24 +332,27 @@ async function handleMemory(
   if (request.method === "PUT") {
     const body = await request.json() as { data: unknown };
     const now = Date.now();
+    const ins = ownerInsertFields(owner);
 
     await env.DB.prepare(
-      `INSERT INTO memory (device_id, data, updated_at)
-       VALUES (?, ?, ?)
+      `INSERT INTO memory (${ins.columns}, data, updated_at)
+       VALUES (${ins.values}, ?, ?)
        ON CONFLICT(device_id)
-       DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
-    ).bind(deviceId, JSON.stringify(body.data), now).run();
+       DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at, user_id = COALESCE(excluded.user_id, user_id)`
+    ).bind(...ins.params, JSON.stringify(body.data), now).run();
 
     return corsJson({ ok: true, updatedAt: now });
   }
 
   return corsJson({ error: "Method not allowed" }, 405);
 }
+
+// --------------- Notes ---------------
 
 async function handleNotes(
   request: Request,
   path: string,
-  deviceId: string,
+  owner: Owner,
   env: Env
 ): Promise<Response> {
   const parts = path.replace("notes/", "").split("/");
@@ -231,11 +364,12 @@ async function handleNotes(
 
   const book = Number(bookStr);
   const chapter = Number(chapterStr);
+  const { clause, param } = ownerWhere(owner);
 
   if (request.method === "GET") {
     const row = await env.DB.prepare(
-      "SELECT data, updated_at FROM notes WHERE device_id = ? AND translation = ? AND book = ? AND chapter = ?"
-    ).bind(deviceId, translation, book, chapter).first();
+      `SELECT data, updated_at FROM notes WHERE ${clause} AND translation = ? AND book = ? AND chapter = ?`
+    ).bind(param, translation, book, chapter).first();
 
     return corsJson({
       data: row ? JSON.parse(row.data as string) : null,
@@ -246,13 +380,14 @@ async function handleNotes(
   if (request.method === "PUT") {
     const body = await request.json() as { data: unknown };
     const now = Date.now();
+    const ins = ownerInsertFields(owner);
 
     await env.DB.prepare(
-      `INSERT INTO notes (device_id, translation, book, chapter, data, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO notes (${ins.columns}, translation, book, chapter, data, updated_at)
+       VALUES (${ins.values}, ?, ?, ?, ?, ?)
        ON CONFLICT(device_id, translation, book, chapter)
-       DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
-    ).bind(deviceId, translation, book, chapter, JSON.stringify(body.data), now).run();
+       DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at, user_id = COALESCE(excluded.user_id, user_id)`
+    ).bind(...ins.params, translation, book, chapter, JSON.stringify(body.data), now).run();
 
     return corsJson({ ok: true, updatedAt: now });
   }
@@ -265,8 +400,9 @@ async function handleNotes(
 function corsHeaders(): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, PUT, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, X-Device-Id",
+    "Access-Control-Allow-Credentials": "true",
   };
 }
 
