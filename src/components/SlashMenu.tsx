@@ -1,4 +1,5 @@
 import { Command } from "cmdk";
+import { useEffect, useRef } from "react";
 import type { BlockType } from "../lib/noteTypes";
 
 interface Props {
@@ -19,15 +20,31 @@ const COMMANDS: { type: BlockType; label: string; desc: string; icon: string }[]
 ];
 
 export function SlashMenu({ position, onSelect, onClose }: Props) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Ensure the input gets focused on mount
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+  }, []);
+
   return (
     <>
-      <div className="fixed inset-0 z-50" onClick={onClose} />
+      <div className="fixed inset-0 z-50" onClick={onClose} onKeyDown={(e) => {
+        if (e.key === "Escape") onClose();
+      }} />
       <div
         className="fixed z-50 bg-white rounded-lg shadow-xl border border-gray-200 w-64 max-h-72 overflow-y-auto"
         style={{ top: position.top, left: position.left }}
       >
-        <Command label="Block type" className="[&_[cmdk-input]]:hidden">
-          <Command.Input autoFocus placeholder="Filter..." className="px-3 py-2 text-sm border-b border-gray-100 outline-none w-full" />
+        <Command label="Block type">
+          <Command.Input
+            ref={inputRef}
+            autoFocus
+            placeholder="Filter..."
+            className="px-3 py-2 text-sm border-b border-gray-100 outline-none w-full"
+          />
           <Command.List className="py-1">
             <Command.Empty className="px-3 py-2 text-sm text-gray-400">
               No results

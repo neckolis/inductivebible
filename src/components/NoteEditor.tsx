@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useNoteStore } from "../store/noteStore";
 import { SlashMenu } from "./SlashMenu";
 import { getBookById } from "../lib/books";
-import type { BlockType } from "../lib/noteTypes";
+import type { BlockType, NoteBlock } from "../lib/noteTypes";
 
 interface Props {
   open: boolean;
@@ -10,6 +10,53 @@ interface Props {
   translation: string;
   book: number;
   chapter: number;
+}
+
+/**
+ * Uncontrolled contentEditable block.
+ * React never re-renders the inner text — we set it once on mount
+ * and read it back on input events.
+ */
+function BlockEditor({
+  block,
+  blockClass,
+  placeholder,
+  onInput,
+  onKeyDown,
+  registerRef,
+}: {
+  block: NoteBlock;
+  blockClass: string;
+  placeholder: string;
+  onInput: (blockId: string, el: HTMLElement) => void;
+  onKeyDown: (e: React.KeyboardEvent, blockId: string) => void;
+  registerRef: (id: string, el: HTMLElement | null) => void;
+}) {
+  const elRef = useRef<HTMLDivElement>(null);
+  const initializedRef = useRef(false);
+
+  // Set initial content only once on mount
+  useEffect(() => {
+    if (elRef.current && !initializedRef.current) {
+      elRef.current.textContent = block.content;
+      initializedRef.current = true;
+    }
+  }, []);
+
+  return (
+    <div
+      ref={(el) => {
+        (elRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+        registerRef(block.id, el);
+      }}
+      contentEditable
+      suppressContentEditableWarning
+      className={blockClass}
+      data-placeholder={placeholder}
+      onInput={(e) => onInput(block.id, e.currentTarget)}
+      onKeyDown={(e) => onKeyDown(e, block.id)}
+    />
+  );
 }
 
 export function NoteEditor({ open, onClose, translation, book, chapter }: Props) {
@@ -61,9 +108,11 @@ export function NoteEditor({ open, onClose, translation, book, chapter }: Props)
         setFocusBlockId(newId);
       }
 
-      if (e.key === "Backspace" && block.content === "") {
-        e.preventDefault();
-        if (blocks.length > 1) {
+      if (e.key === "Backspace") {
+        const el = blockRefs.current.get(blockId);
+        const text = el?.textContent ?? "";
+        if (text === "" && blocks.length > 1) {
+          e.preventDefault();
           const prevId = idx > 0 ? blocks[idx - 1].id : null;
           deleteBlock(blockId);
           if (prevId) setFocusBlockId(prevId);
@@ -78,7 +127,6 @@ export function NoteEditor({ open, onClose, translation, book, chapter }: Props)
             const range = sel.getRangeAt(0);
             const rect = range.getBoundingClientRect();
             const elRect = el.getBoundingClientRect();
-            // Only move to previous block if cursor is at the top line
             if (Math.abs(rect.top - elRect.top) < 5) {
               e.preventDefault();
               setFocusBlockId(blocks[idx - 1].id);
@@ -95,7 +143,6 @@ export function NoteEditor({ open, onClose, translation, book, chapter }: Props)
             const range = sel.getRangeAt(0);
             const rect = range.getBoundingClientRect();
             const elRect = el.getBoundingClientRect();
-            // Only move to next block if cursor is at the bottom line
             if (Math.abs(rect.bottom - elRect.bottom) < 5) {
               e.preventDefault();
               setFocusBlockId(blocks[idx + 1].id);
@@ -146,6 +193,11 @@ export function NoteEditor({ open, onClose, translation, book, chapter }: Props)
   function handleStartWriting() {
     const newId = addBlock(null);
     setFocusBlockId(newId);
+  }
+
+  function registerRef(id: string, el: HTMLElement | null) {
+    if (el) blockRefs.current.set(id, el);
+    else blockRefs.current.delete(id);
   }
 
   const bookInfo = getBookById(book);
@@ -251,18 +303,14 @@ export function NoteEditor({ open, onClose, translation, book, chapter }: Props)
                     : "";
 
                 const contentEl = (
-                  <div
-                    ref={(el) => {
-                      if (el) blockRefs.current.set(block.id, el);
-                      else blockRefs.current.delete(block.id);
-                    }}
-                    contentEditable
-                    suppressContentEditableWarning
-                    className={blockClass}
-                    data-placeholder={placeholder}
-                    onInput={(e) => handleInput(block.id, e.currentTarget)}
-                    onKeyDown={(e) => handleKeyDown(e, block.id)}
-                    dangerouslySetInnerHTML={{ __html: block.content }}
+                  <BlockEditor
+                    key={block.id}
+                    block={block}
+                    blockClass={blockClass}
+                    placeholder={placeholder}
+                    onInput={handleInput}
+                    onKeyDown={handleKeyDown}
+                    registerRef={registerRef}
                   />
                 );
 

@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { fetchChapter } from "../lib/api";
 import { getBookById, BOOKS } from "../lib/books";
 import { BibleText } from "../components/BibleText";
@@ -17,12 +17,25 @@ import { useAuthStore } from "../store/authStore";
 import { useSwipeNavigation } from "../lib/useSwipeNavigation";
 import type { BibleVerse } from "../lib/types";
 
+const TRANSLATIONS = [
+  { id: "NASB", label: "NASB" },
+  { id: "ESV", label: "ESV" },
+  { id: "KJV", label: "KJV" },
+  { id: "NKJV", label: "NKJV" },
+  { id: "NIV", label: "NIV" },
+  { id: "NLT", label: "NLT" },
+  { id: "YLT", label: "YLT" },
+  { id: "ASV", label: "ASV" },
+];
+
 export function BibleReader() {
-  const { translation = "nasb", book, chapter } = useParams();
+  const { translation = "NASB", book, chapter } = useParams();
   const navigate = useNavigate();
   const clearSelection = useSelectionStore((s) => s.clearSelection);
   const bookNum = Number(book);
   const chapterNum = Number(chapter);
+  const [translationOpen, setTranslationOpen] = useState(false);
+  const translationRef = useRef<HTMLDivElement>(null);
 
   const [verses, setVerses] = useState<BibleVerse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,6 +48,18 @@ export function BibleReader() {
   useEffect(() => {
     initAuth();
   }, [initAuth]);
+
+  // Close translation dropdown on click outside
+  useEffect(() => {
+    if (!translationOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (translationRef.current && !translationRef.current.contains(e.target as Node)) {
+        setTranslationOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [translationOpen]);
 
   const bookInfo = getBookById(bookNum);
   const maxChapters = bookInfo?.chapters ?? 1;
@@ -123,9 +148,36 @@ export function BibleReader() {
               <kbd className="text-[10px]">&#8984;K</kbd>
               <span>Search</span>
             </button>
-            <span className="uppercase tracking-wider font-medium">
-              {translation}
-            </span>
+            <div className="relative" ref={translationRef}>
+              <button
+                onClick={() => setTranslationOpen((v) => !v)}
+                className="uppercase tracking-wider font-medium bg-transparent border-none cursor-pointer text-gray-500 hover:text-gray-800 transition-colors px-1"
+              >
+                {translation}
+              </button>
+              {translationOpen && (
+                <div className="absolute right-0 top-full mt-1 bg-white rounded-lg shadow-xl border border-gray-200 py-1 min-w-[5rem] z-50">
+                  {TRANSLATIONS.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => {
+                        setTranslationOpen(false);
+                        if (t.id.toLowerCase() !== translation.toLowerCase()) {
+                          navigate(`/${t.id}/${bookNum}/${chapterNum}`);
+                        }
+                      }}
+                      className={`block w-full text-left px-3 py-1.5 text-sm border-none cursor-pointer transition-colors ${
+                        t.id.toLowerCase() === translation.toLowerCase()
+                          ? "bg-blue-50 text-blue-700 font-medium"
+                          : "bg-transparent text-gray-700 hover:bg-gray-50"
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <ProfileMenu onSignIn={() => setAuthOpen(true)} />
           </div>
         </div>
