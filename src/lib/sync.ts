@@ -26,6 +26,11 @@ function headers(): HeadersInit {
   };
 }
 
+/** Fetch options with credentials (sends session cookie) + device-id header */
+function fetchOpts(extra?: RequestInit): RequestInit {
+  return { credentials: "include", headers: headers(), ...extra };
+}
+
 // --------------- Debounce ---------------
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -57,7 +62,7 @@ export async function fetchMarkingsFromCloud(
   try {
     const res = await fetch(
       `${API_BASE}/markings/${translation}/${book}/${chapter}`,
-      { headers: headers() }
+      fetchOpts()
     );
     if (!res.ok) return { data: null, updatedAt: null };
     return await res.json();
@@ -77,11 +82,10 @@ export function syncMarkingsToCloud(
     try {
       await fetch(
         `${API_BASE}/markings/${translation}/${book}/${chapter}`,
-        {
+        fetchOpts({
           method: "PUT",
-          headers: headers(),
           body: JSON.stringify({ data }),
-        }
+        })
       );
     } catch {
       // offline — will sync next time
@@ -93,7 +97,7 @@ export function syncMarkingsToCloud(
 
 export async function fetchSymbolsFromCloud(): Promise<SyncResponse<SymbolDef[]>> {
   try {
-    const res = await fetch(`${API_BASE}/symbols`, { headers: headers() });
+    const res = await fetch(`${API_BASE}/symbols`, fetchOpts());
     if (!res.ok) return { data: null, updatedAt: null };
     return await res.json();
   } catch {
@@ -104,11 +108,10 @@ export async function fetchSymbolsFromCloud(): Promise<SyncResponse<SymbolDef[]>
 export function syncSymbolsToCloud(data: SymbolDef[]): void {
   debounce("symbols", async () => {
     try {
-      await fetch(`${API_BASE}/symbols`, {
+      await fetch(`${API_BASE}/symbols`, fetchOpts({
         method: "PUT",
-        headers: headers(),
         body: JSON.stringify({ data }),
-      });
+      }));
     } catch {
       // offline
     }
@@ -121,7 +124,7 @@ export async function fetchMemoryFromCloud(): Promise<
   SyncResponse<Record<string, WordAssociation[]>>
 > {
   try {
-    const res = await fetch(`${API_BASE}/memory`, { headers: headers() });
+    const res = await fetch(`${API_BASE}/memory`, fetchOpts());
     if (!res.ok) return { data: null, updatedAt: null };
     return await res.json();
   } catch {
@@ -134,11 +137,10 @@ export function syncMemoryToCloud(
 ): void {
   debounce("memory", async () => {
     try {
-      await fetch(`${API_BASE}/memory`, {
+      await fetch(`${API_BASE}/memory`, fetchOpts({
         method: "PUT",
-        headers: headers(),
         body: JSON.stringify({ data }),
-      });
+      }));
     } catch {
       // offline
     }
@@ -155,7 +157,7 @@ export async function fetchNotesFromCloud(
   try {
     const res = await fetch(
       `${API_BASE}/notes/${translation}/${book}/${chapter}`,
-      { headers: headers() }
+      fetchOpts()
     );
     if (!res.ok) return { data: null, updatedAt: null };
     return await res.json();
@@ -175,11 +177,10 @@ export function syncNotesToCloud(
     try {
       await fetch(
         `${API_BASE}/notes/${translation}/${book}/${chapter}`,
-        {
+        fetchOpts({
           method: "PUT",
-          headers: headers(),
           body: JSON.stringify({ data }),
-        }
+        })
       );
     } catch {
       // offline — will sync next time
