@@ -4,7 +4,6 @@ import { fetchChapter } from "../lib/api";
 import { getBookById, BOOKS } from "../lib/books";
 import { BibleText } from "../components/BibleText";
 import { useSelectionStore } from "../store/selectionStore";
-import { ChapterNav } from "../components/ChapterNav";
 import { BookSelector } from "../components/BookSelector";
 import { CommandPalette } from "../components/CommandPalette";
 import { BottomToolbar } from "../components/BottomToolbar";
@@ -204,13 +203,6 @@ export function BibleReader() {
         )}
       </main>
 
-      {/* Chapter navigation - positioned above toolbar */}
-      <ChapterNav
-        hasPrev={hasPrev}
-        hasNext={hasNext}
-        onPrev={goToPrev}
-        onNext={goToNext}
-      />
 
       <CommandPalette />
       <BottomToolbar onOpenGlossary={() => setGlossaryOpen(true)} onOpenNotes={() => setNotesOpen(true)} />
