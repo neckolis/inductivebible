@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Georgia", "Charter", "Cambria", "Times New Roman", serif;
+}
+
+body {
+  margin: 0;
+  background-color: #fafaf8;
+  color: #1a1a1a;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Bible text styling */
+.bible-text {
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  line-height: 2.5;
+  letter-spacing: 0.01em;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.verse-number {
+  font-family: system-ui, sans-serif;
+  font-size: 0.7em;
+  font-weight: 600;
+  color: #9ca3af;
+  vertical-align: super;
+  margin-right: 0.25em;
+  user-select: none;
+}
+
+/* Mobile safe area for bottom toolbar */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Responsive text sizing */
+@media (max-width: 640px) {
+  .bible-text {
+    font-size: 1rem;
+    line-height: 2.3;
+  }
+}
+
+/* Bottom padding for persistent toolbar (all screen sizes) */
+main {
+  padding-bottom: 7rem !important;
+}
+
+/* cmdk dialog overrides */
+[cmdk-root] {
+  font-family: system-ui, sans-serif;
+}
+
+[cmdk-input] {
+  font-family: system-ui, sans-serif;
+}

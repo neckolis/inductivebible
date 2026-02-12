@@ -1,0 +1,35 @@
+{
+  "name": "inductivebible",
+  "compatibility_date": "2025-04-01",
+  "main": "./worker/index.ts",
+  "routes": [
+    {
+      "pattern": "inductivebible.ai",
+      "custom_domain": true
+    },
+    {
+      "pattern": "www.inductivebible.ai",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "inductivebible-db",
+      "database_id": "e34a13bd-ae8f-4562-bc60-8b150b95b365",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "CACHE",
+      "id": "0ab0f2f903ac41ad9aa14a08f0c65ec7"
+    }
+  ]
+}
