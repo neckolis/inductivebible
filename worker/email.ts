@@ -1,5 +1,5 @@
 const RESEND_API = "https://api.resend.com/emails";
-const FROM_EMAIL = "Inductive Bible <noreply@inductivebible.ai>";
+const FROM_EMAIL = "Inductive Bible <hello@inductivebible.ai>";
 
 interface SendEmailOptions {
   to: string;

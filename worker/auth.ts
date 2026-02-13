@@ -6,6 +6,7 @@ import { sendEmail } from "./email";
 
 interface AuthEnv {
   DB: D1Database;
+  CACHE: KVNamespace;
   BETTER_AUTH_SECRET: string;
   BETTER_AUTH_URL: string;
   RESEND_API_KEY: string;
@@ -31,7 +32,16 @@ export function createAuth(env: AuthEnv) {
       autoSignIn: true,
 
       sendResetPassword: async ({ user, url }) => {
-        void sendEmail(env.RESEND_API_KEY, {
+        // Rate limit: 1 reset email per 60 seconds per email
+        const rateKey = `reset-rate:${user.email}`;
+        const existing = await env.CACHE.get(rateKey);
+        if (existing) {
+          console.log("Rate limited reset for:", user.email);
+          return;
+        }
+        await env.CACHE.put(rateKey, "1", { expirationTtl: 60 });
+
+        await sendEmail(env.RESEND_API_KEY, {
           to: user.email,
           subject: "Reset your password",
           html: `
@@ -49,6 +59,46 @@ export function createAuth(env: AuthEnv) {
             </div>
           `,
         });
+      },
+    },
+
+    databaseHooks: {
+      user: {
+        create: {
+          after: async (user) => {
+            await sendEmail(env.RESEND_API_KEY, {
+              to: user.email,
+              subject: "Welcome to Inductive Bible",
+              html: `
+                <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
+                  <h2 style="color: #1a1a1a; font-size: 20px; margin-bottom: 16px;">Welcome to Inductive Bible!</h2>
+                  <p style="color: #4a4a4a; font-size: 15px; line-height: 1.6; margin-bottom: 16px;">
+                    Hi${user.name ? ` ${user.name}` : ''},
+                  </p>
+                  <p style="color: #4a4a4a; font-size: 15px; line-height: 1.6; margin-bottom: 16px;">
+                    Thank you for joining Inductive Bible! I'm so glad you're here. This app was built to help you dig deeper into God's Word through inductive Bible study — highlighting, annotating, and taking notes as you read.
+                  </p>
+                  <p style="color: #4a4a4a; font-size: 15px; line-height: 1.6; margin-bottom: 16px;">
+                    After you've had a chance to use it, I'd love to hear your feedback. What's working well? What could be better? Just reply to this email — I read every message.
+                  </p>
+                  <p style="color: #4a4a4a; font-size: 15px; line-height: 1.6; margin-bottom: 16px;">
+                    I'm praying for you as you spend time in the Word. May God richly bless your study!
+                  </p>
+                  <p style="color: #4a4a4a; font-size: 15px; line-height: 1.6; margin-bottom: 4px;">
+                    In Christ,
+                  </p>
+                  <p style="color: #1a1a1a; font-size: 15px; font-weight: 600;">
+                    The Inductive Bible Team
+                  </p>
+                  <hr style="border: none; border-top: 1px solid #e5e5e5; margin: 24px 0;" />
+                  <p style="color: #9a9a9a; font-size: 13px; line-height: 1.5;">
+                    <a href="https://inductivebible.ai" style="color: #2563eb; text-decoration: none;">inductivebible.ai</a>
+                  </p>
+                </div>
+              `,
+            });
+          },
+        },
       },
     },
 
