@@ -1,73 +1,63 @@
-# React + TypeScript + Vite
+# Inductive Bible
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A Bible study app for inductive study with text marking, symbols, notes, and cloud sync.
 
-Currently, two official plugins are available:
+Live at [inductivebible.ai](https://inductivebible.ai)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Features
 
-## React Compiler
+- **Multiple translations** — NASB, ESV, KJV, NKJV, NIV, NLT, and more
+- **Text marking** — Highlight, underline (single/double/wavy), and symbol annotations on individual words
+- **Drag-to-select** — Click-drag or touch-drag to select word ranges
+- **Notion-style notes** — Per-chapter notes with slash commands (headings, bullets, quotes, to-dos, callouts)
+- **Symbol glossary** — Custom icon palette with memory tracking
+- **Cloud sync** — Markings, symbols, and notes sync to your account
+- **Auth** — Email/password and Google OAuth via Better Auth
+- **Password reset** — Email-based reset flow via Resend
+- **Keyboard shortcuts** — Full keyboard navigation (arrow keys, hotkeys for tools)
+- **Works offline** — Local-first with localStorage, syncs when online
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Stack
 
-## Expanding the ESLint configuration
+- **Frontend:** React 19, TypeScript, Vite, Tailwind CSS v4, Zustand
+- **Backend:** Cloudflare Workers
+- **Database:** Cloudflare D1 (SQLite)
+- **Cache:** Cloudflare KV
+- **Auth:** Better Auth with Drizzle adapter
+- **Email:** Resend
+- **Bible data:** Bolls.life API
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Development
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Runs Vite dev server at `http://localhost:5173` with API proxy to Bolls.life.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Create a `.dev.vars` file for local secrets:
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+BETTER_AUTH_SECRET=your-secret
+BETTER_AUTH_URL=http://localhost:5173
+RESEND_API_KEY=your-resend-key
+```
+
+## Deploy
+
+```bash
+npm run deploy
+```
+
+Builds the frontend, applies D1 migrations, and deploys to Cloudflare Workers.
+
+## Secrets
+
+Set production secrets via wrangler:
+
+```bash
+wrangler secret put BETTER_AUTH_SECRET
+wrangler secret put BETTER_AUTH_URL
+wrangler secret put RESEND_API_KEY
 ```
