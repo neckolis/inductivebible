@@ -31,6 +31,7 @@ import {
   NotePencil,
 } from "@phosphor-icons/react";
 import type { ForwardRefExoticComponent, RefAttributes, SVGAttributes } from "react";
+import { PRECEPT_ICONS, PRECEPT_ICON_NAMES } from "./precept-icons";
 
 // Phosphor icon component type
 type PhosphorIcon = ForwardRefExoticComponent<
@@ -39,8 +40,8 @@ type PhosphorIcon = ForwardRefExoticComponent<
   SVGAttributes<SVGSVGElement>
 >;
 
-// Registry of all supported icons (only these are bundled)
-export const ICON_REGISTRY: Record<string, PhosphorIcon> = {
+// Phosphor icons bundled in the main chunk
+const PHOSPHOR_ICONS: Record<string, PhosphorIcon> = {
   Cross: Cross as PhosphorIcon,
   Heart: Heart as PhosphorIcon,
   Fire: Fire as PhosphorIcon,
@@ -68,7 +69,15 @@ export const ICON_REGISTRY: Record<string, PhosphorIcon> = {
   Clock: Clock as PhosphorIcon,
 };
 
-export const CURATED_ICON_NAMES = Object.keys(ICON_REGISTRY);
+// Registry: Precept icons + Phosphor icons
+export const ICON_REGISTRY: Record<string, PhosphorIcon> = {
+  ...(PRECEPT_ICONS as unknown as Record<string, PhosphorIcon>),
+  ...PHOSPHOR_ICONS,
+};
+
+// Curated list: Precept icons first, then Phosphor
+const PHOSPHOR_ICON_NAMES = Object.keys(PHOSPHOR_ICONS);
+export const CURATED_ICON_NAMES = [...PRECEPT_ICON_NAMES, ...PHOSPHOR_ICON_NAMES];
 
 // Re-export toolbar icons for direct use
 export {

@@ -93,6 +93,86 @@ export function syncMarkingsToCloud(
   });
 }
 
+// --------------- Markings backup ---------------
+
+export async function fetchMarkingsBackup(
+  translation: string,
+  book: number,
+  chapter: number
+): Promise<{ data: Record<string, WordMarkings> | null }> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/markings-backup/${translation}/${book}/${chapter}`,
+      fetchOpts()
+    );
+    if (!res.ok) return { data: null };
+    return await res.json();
+  } catch {
+    return { data: null };
+  }
+}
+
+export async function restoreMarkingsFromBackup(
+  translation: string,
+  book: number,
+  chapter: number
+): Promise<{ ok: boolean; data: Record<string, WordMarkings> | null }> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/markings-backup/${translation}/${book}/${chapter}`,
+      fetchOpts({ method: "POST" })
+    );
+    if (!res.ok) return { ok: false, data: null };
+    const json = await res.json();
+    return { ok: true, data: json.data };
+  } catch {
+    return { ok: false, data: null };
+  }
+}
+
+// --------------- Preferences ---------------
+
+export interface Preferences {
+  defaultTranslation?: string;
+}
+
+export async function fetchPreferences(): Promise<{ data: Preferences | null }> {
+  try {
+    const res = await fetch(`${API_BASE}/preferences`, fetchOpts());
+    if (!res.ok) return { data: null };
+    return await res.json();
+  } catch {
+    return { data: null };
+  }
+}
+
+export function syncPreferencesToCloud(data: Preferences): void {
+  debounce("preferences", async () => {
+    try {
+      await fetch(`${API_BASE}/preferences`, fetchOpts({
+        method: "PUT",
+        body: JSON.stringify({ data }),
+      }));
+    } catch {
+      // offline
+    }
+  });
+}
+
+// --------------- Delete account ---------------
+
+export async function deleteAccountOnServer(): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/delete-account`, fetchOpts({
+      method: "POST",
+      body: JSON.stringify({ confirm: "DELETE" }),
+    }));
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 // --------------- Symbols ---------------
 
 export async function fetchSymbolsFromCloud(): Promise<SyncResponse<SymbolDef[]>> {

@@ -12,9 +12,11 @@ import {
 } from "../store/selectionStore";
 import { useMarkingStore } from "../store/markingStore";
 import { useToolStore } from "../store/toolStore";
+import { useArrowStore } from "../store/arrowStore";
 import { useMemoryStore } from "../store/memoryStore";
 import { useSymbolStore } from "../store/symbolStore";
-import { hasAnyMarking, type WordMarkings, parseSymbolValue } from "../lib/storage";
+import { hasAnyMarking, type WordMarkings, type ArrowConnection, parseSymbolValue } from "../lib/storage";
+import { ArrowOverlay } from "./ArrowOverlay";
 
 interface Props {
   verses: BibleVerse[];
@@ -37,6 +39,7 @@ interface ContextMenuState {
   verse: number;
   wordIndex: number;
   marking: WordMarkings;
+  connectedArrows: ArrowConnection[];
 }
 
 function parseVerseWords(verses: BibleVerse[]): WordInfo[][] {
@@ -66,8 +69,18 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
   const { anchor, focus, setSelection, extendSelection, clearSelection } =
     useSelectionStore();
   const setDragging = useSelectionStore((s) => s.setDragging);
+  const setSelectedWordTexts = useSelectionStore((s) => s.setSelectedWordTexts);
   const { loadChapter, markings, addMarking, undo, redo, clearChapter } = useMarkingStore();
   const paintBrush = useToolStore((s) => s.paintBrush);
+  const arrowMode = useToolStore((s) => s.arrowMode);
+  const arrowSource = useToolStore((s) => s.arrowSource);
+  const setArrowSource = useToolStore((s) => s.setArrowSource);
+  const activeColor = useToolStore((s) => s.activeColor);
+  const arrowStyle = useToolStore((s) => s.arrowStyle);
+  const arrowHeadStyle = useToolStore((s) => s.arrowHeadStyle);
+  const loadArrows = useArrowStore((s) => s.loadChapter);
+  const addArrow = useArrowStore((s) => s.addArrow);
+  const arrows = useArrowStore((s) => s.arrows);
   const recordMemory = useMemoryStore((s) => s.record);
   const { addSymbol, recordUsage } = useSymbolStore();
 
@@ -90,8 +103,26 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
 
   useEffect(() => {
     loadChapter(translation, book, chapter);
+    loadArrows(translation, book, chapter);
     clearSelection();
-  }, [translation, book, chapter, loadChapter, clearSelection]);
+  }, [translation, book, chapter, loadChapter, loadArrows, clearSelection]);
+
+  // Derive selectedWordTexts from current selection range
+  useEffect(() => {
+    if (!anchor || !focus) return;
+    const [start, end] = getSelectionRange(anchor, focus);
+    const texts: string[] = [];
+    for (const verseWords of allVerseWords) {
+      for (const w of verseWords) {
+        if (isWordInRange({ verse: w.verse, wordIndex: w.wordIndex }, start, end)) {
+          const clean = w.word.replace(/[^a-zA-Z']/g, "");
+          if (clean) texts.push(clean);
+        }
+      }
+    }
+    setSelectedWordTexts(texts);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchor, focus]);
 
   const findFlatIndex = useCallback(
     (word: WordId) =>
@@ -273,6 +304,28 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
       e.preventDefault();
     }
 
+    // Arrow mode: first click sets source, second click creates arrow
+    if (arrowMode) {
+      if (!arrowSource) {
+        setArrowSource({ verse: hit.verse, wordIndex: hit.wordIndex });
+      } else {
+        // Don't create arrow to self
+        if (arrowSource.verse !== hit.verse || arrowSource.wordIndex !== hit.wordIndex) {
+          addArrow({
+            fromVerse: arrowSource.verse,
+            fromWord: arrowSource.wordIndex,
+            toVerse: hit.verse,
+            toWord: hit.wordIndex,
+            color: activeColor,
+            style: arrowStyle,
+            headStyle: arrowHeadStyle,
+          });
+        }
+        setArrowSource(null);
+      }
+      return;
+    }
+
     dragStateRef.current = { active: true, startWord: { verse: hit.verse, wordIndex: hit.wordIndex }, moved: false };
     setDragging(true);
 
@@ -313,9 +366,14 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
     wordIndex: number
   ) {
     const marking = markings[`${verse}:${wordIndex}`];
-    if (!marking || !hasAnyMarking(marking)) return;
+    const connectedArrows = arrows.filter(
+      (a) =>
+        (a.fromVerse === verse && a.fromWord === wordIndex) ||
+        (a.toVerse === verse && a.toWord === wordIndex)
+    );
+    if ((!marking || !hasAnyMarking(marking)) && connectedArrows.length === 0) return;
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, verse, wordIndex, marking });
+    setContextMenu({ x: e.clientX, y: e.clientY, verse, wordIndex, marking: marking ?? {}, connectedArrows });
   }
 
   function handleDragOver(e: React.DragEvent, verse: number, wordIndex: number) {
@@ -369,27 +427,81 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
         }
       }}
     >
-      {allVerseWords.map((verseWords, vi) => (
-        <div key={verses[vi].pk} className="mb-3">
-          <sup className="verse-number">{verses[vi].verse}</sup>
-          {verseWords.map((w, wi) => {
-            const selected =
-              rangeStart && rangeEnd
-                ? isWordInRange(
-                    { verse: w.verse, wordIndex: w.wordIndex },
-                    rangeStart,
-                    rangeEnd
-                  )
-                : false;
-            const wordKey = `${w.verse}:${w.wordIndex}`;
-            return (
-              <span key={`${w.verse}-${wi}`}>
+      {allVerseWords.map((verseWords, vi) => {
+        // Compute symbol runs for centering: consecutive words with the same symbol value
+        const symbolRuns: { start: number; end: number; value: string }[] = [];
+        let runStart = -1;
+        let runValue = "";
+        for (let i = 0; i < verseWords.length; i++) {
+          const key = `${verseWords[i].verse}:${verseWords[i].wordIndex}`;
+          const sym = markings[key]?.symbol?.value;
+          if (sym && sym === runValue) {
+            // continue run
+          } else {
+            if (runStart >= 0 && runValue) {
+              symbolRuns.push({ start: runStart, end: i - 1, value: runValue });
+            }
+            runStart = i;
+            runValue = sym ?? "";
+          }
+        }
+        if (runStart >= 0 && runValue) {
+          symbolRuns.push({ start: runStart, end: verseWords.length - 1, value: runValue });
+        }
+
+        // Build a set of word indices that should suppress their symbol
+        const suppressSymbolSet = new Set<number>();
+        for (const run of symbolRuns) {
+          if (run.end > run.start) {
+            const center = Math.floor((run.start + run.end) / 2);
+            for (let i = run.start; i <= run.end; i++) {
+              if (i !== center) suppressSymbolSet.add(i);
+            }
+          }
+        }
+
+        return (
+          <div key={verses[vi].pk} className="mb-3">
+            <sup className="verse-number">{verses[vi].verse}</sup>
+            {verseWords.map((w, wi) => {
+              const selected =
+                rangeStart && rangeEnd
+                  ? isWordInRange(
+                      { verse: w.verse, wordIndex: w.wordIndex },
+                      rangeStart,
+                      rangeEnd
+                    )
+                  : false;
+              const wKey = `${w.verse}:${w.wordIndex}`;
+              const isLast = wi >= verseWords.length - 1;
+
+              // Adjacency flags: check if next word has matching highlight/underline
+              let continueHighlight = false;
+              let continueUnderline = false;
+              if (!isLast) {
+                const nextKey = `${verseWords[wi + 1].verse}:${verseWords[wi + 1].wordIndex}`;
+                const curMark = markings[wKey];
+                const nextMark = markings[nextKey];
+                if (curMark?.highlight && nextMark?.highlight && curMark.highlight.value === nextMark.highlight.value) {
+                  continueHighlight = true;
+                }
+                if (curMark?.underline && nextMark?.underline && curMark.underline.value === nextMark.underline.value) {
+                  continueUnderline = true;
+                }
+              }
+
+              return (
                 <WordSpan
+                  key={`${w.verse}-${wi}`}
                   verse={w.verse}
                   wordIndex={w.wordIndex}
                   word={w.word}
                   isSelected={selected}
-                  isDragOver={dragOverWord === wordKey}
+                  isDragOver={dragOverWord === wKey}
+                  trailingSpace={!isLast}
+                  continueHighlight={continueHighlight}
+                  continueUnderline={continueUnderline}
+                  suppressSymbol={suppressSymbolSet.has(wi)}
                   onContextMenu={(e) =>
                     handleContextMenu(e, w.verse, w.wordIndex)
                   }
@@ -397,12 +509,11 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
                   onDragLeave={handleDragLeave}
                   onDrop={(e) => handleDrop(e, w.verse, w.wordIndex, w.word)}
                 />
-                {wi < verseWords.length - 1 ? " " : ""}
-              </span>
-            );
-          })}
-        </div>
-      ))}
+              );
+            })}
+          </div>
+        );
+      })}
 
       {contextMenu && (
         <MarkContextMenu
@@ -411,6 +522,7 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
           verse={contextMenu.verse}
           wordIndex={contextMenu.wordIndex}
           marking={contextMenu.marking}
+          connectedArrows={contextMenu.connectedArrows}
           onClose={() => setContextMenu(null)}
           onClearChapter={() => {
             setContextMenu(null);
@@ -430,6 +542,7 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
         />
       )}
 
+      <ArrowOverlay containerRef={containerRef} />
       <UndoToast />
     </div>
   );

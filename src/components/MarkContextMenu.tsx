@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useMarkingStore } from "../store/markingStore";
-import { parseSymbolValue, type WordMarkings } from "../lib/storage";
+import { useArrowStore } from "../store/arrowStore";
+import { parseSymbolValue, type WordMarkings, type ArrowConnection } from "../lib/storage";
 import { getIconComponent } from "../lib/icons";
 
 interface Props {
@@ -9,6 +10,7 @@ interface Props {
   verse: number;
   wordIndex: number;
   marking: WordMarkings;
+  connectedArrows?: ArrowConnection[];
   onClose: () => void;
   onClearChapter: () => void;
 }
@@ -19,11 +21,13 @@ export function MarkContextMenu({
   verse,
   wordIndex,
   marking,
+  connectedArrows = [],
   onClose,
   onClearChapter,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const { removeMarking, clearVerse, clearSymbolInChapter } = useMarkingStore();
+  const removeArrow = useArrowStore((s) => s.removeArrow);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -94,6 +98,32 @@ export function MarkContextMenu({
         >
           Remove all marks
         </button>
+      )}
+
+      {/* Arrow removal options */}
+      {connectedArrows.length > 0 && (
+        <>
+          {(marking.highlight || marking.underline || marking.symbol) && (
+            <div className="h-px bg-gray-100 my-1" />
+          )}
+          {connectedArrows.map((arrow) => {
+            const isFrom = arrow.fromVerse === verse && arrow.fromWord === wordIndex;
+            const targetVerse = isFrom ? arrow.toVerse : arrow.fromVerse;
+            const targetWord = isFrom ? arrow.toWord : arrow.fromWord;
+            return (
+              <button
+                key={arrow.id}
+                onClick={() => {
+                  removeArrow(arrow.id);
+                  onClose();
+                }}
+                className="block w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 bg-transparent border-none cursor-pointer"
+              >
+                Remove arrow {isFrom ? "to" : "from"} {targetVerse}:{targetWord}
+              </button>
+            );
+          })}
+        </>
       )}
 
       <div className="h-px bg-gray-100 my-1" />

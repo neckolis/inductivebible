@@ -7,6 +7,7 @@ import {
   BookOpen,
   NotePencil,
 } from "../lib/icons";
+import { ArrowBendUpRight } from "@phosphor-icons/react";
 import {
   useSelectionStore,
   getSelectionRange,
@@ -14,9 +15,13 @@ import {
 } from "../store/selectionStore";
 import { useMarkingStore } from "../store/markingStore";
 import { useSymbolStore } from "../store/symbolStore";
+import { useMemoryStore } from "../store/memoryStore";
 import { useToolStore } from "../store/toolStore";
 import { parseSymbolValue } from "../lib/storage";
 import { ColorSelector } from "./ColorSelector";
+
+// Preload allIcons in background so symbols render without opening the picker
+import("../lib/allIcons");
 
 const LazyIconPicker = lazy(() =>
   import("./IconPicker").then((m) => ({ default: m.IconPicker }))
@@ -34,15 +39,25 @@ interface Props {
 
 export function BottomToolbar({ onOpenGlossary, onOpenNotes }: Props) {
   const { anchor, focus } = useSelectionStore();
+  const selectedWordTexts = useSelectionStore((s) => s.selectedWordTexts);
   const { addMarking, removeMarking, markings } = useMarkingStore();
   const { addSymbol, recordUsage } = useSymbolStore();
-  const { paintBrush, setPaintBrush, clearPaintBrush, activeColor } =
+  const recordMemory = useMemoryStore((s) => s.record);
+  const { paintBrush, setPaintBrush, clearPaintBrush, activeColor, arrowMode, setArrowMode, arrowSource, arrowStyle, setArrowStyle, arrowHeadStyle, setArrowHeadStyle } =
     useToolStore();
   const [activeTab, setActiveTab] = useState<Tab>(null);
   const [underlineStyle, setUnderlineStyle] =
     useState<(typeof UNDERLINE_STYLES)[number]>("single");
 
   const hasSelection = !!anchor && !!focus;
+  const getAllSuggestions = useMemoryStore((s) => s.getAllSuggestions);
+
+  // Auto-open symbol tab when a word is selected
+  useEffect(() => {
+    if (hasSelection) {
+      setActiveTab("symbol");
+    }
+  }, [hasSelection]);
 
   function getSelectedWords() {
     if (!anchor || !focus) return [];
@@ -83,6 +98,10 @@ export function BottomToolbar({ onOpenGlossary, onOpenNotes }: Props) {
     if (words.length > 0) {
       for (const w of words) {
         addMarking(w.verse, w.wordIndex, "symbol", symbolValue);
+      }
+      // Record word→symbol associations for smart suggestions
+      for (const text of selectedWordTexts) {
+        recordMemory(text, symbolValue);
       }
       const parsed = parseSymbolValue(symbolValue);
       if (parsed) {
@@ -186,6 +205,11 @@ export function BottomToolbar({ onOpenGlossary, onOpenNotes }: Props) {
       }
 
       if (e.key === "Escape") {
+        if (arrowMode) {
+          setArrowMode(false);
+          e.preventDefault();
+          return;
+        }
         if (paintBrush) {
           clearPaintBrush();
           e.preventDefault();
@@ -196,6 +220,11 @@ export function BottomToolbar({ onOpenGlossary, onOpenNotes }: Props) {
           e.preventDefault();
           return;
         }
+      }
+
+      if ((e.key === "a" || e.key === "A") && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        setArrowMode(!arrowMode);
       }
 
       if (e.key === "h" || e.key === "H") {
@@ -246,11 +275,20 @@ export function BottomToolbar({ onOpenGlossary, onOpenNotes }: Props) {
         e.preventDefault();
         onOpenNotes();
       }
+
+      // Enter: quick-apply first suggestion
+      if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && hasSelection) {
+        const suggestions = getAllSuggestions(selectedWordTexts);
+        if (suggestions.length > 0) {
+          e.preventDefault();
+          applySymbol(suggestions[0].symbol);
+        }
+      }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeTab, paintBrush, hasSelection, markings, activeColor]);
+  }, [activeTab, paintBrush, arrowMode, hasSelection, markings, activeColor, selectedWordTexts, getAllSuggestions]);
 
   return (
     <div
@@ -323,6 +361,69 @@ export function BottomToolbar({ onOpenGlossary, onOpenNotes }: Props) {
         </div>
       )}
 
+      {/* Arrow mode style picker */}
+      {arrowMode && (
+        <div className="px-3 py-2 border-b border-gray-100">
+          {/* Line style row */}
+          <div className="flex items-center gap-2 justify-center mb-2">
+            <span className="text-[10px] text-gray-400 uppercase tracking-wide mr-1">Line</span>
+            {(["solid", "dashed", "dotted"] as const).map((style) => (
+              <button
+                key={style}
+                onClick={() => setArrowStyle(style)}
+                className={`px-3 py-1 rounded transition-colors border-none cursor-pointer flex items-center gap-1.5 ${
+                  arrowStyle === style
+                    ? "bg-amber-50"
+                    : "bg-transparent hover:bg-gray-100"
+                }`}
+                title={style}
+              >
+                <svg width="36" height="12" viewBox="0 0 36 12">
+                  <line
+                    x1="2" y1="6" x2="28" y2="6"
+                    stroke={activeColor}
+                    strokeWidth={2}
+                    strokeDasharray={
+                      style === "dashed" ? "6 3" :
+                      style === "dotted" ? "2 2" :
+                      undefined
+                    }
+                  />
+                  <polygon points="26 2, 34 6, 26 10" fill={activeColor} />
+                </svg>
+              </button>
+            ))}
+          </div>
+          {/* Head style row */}
+          <div className="flex items-center gap-2 justify-center mb-1.5">
+            <span className="text-[10px] text-gray-400 uppercase tracking-wide mr-1">Head</span>
+            {(["end", "both", "start", "none"] as const).map((hs) => {
+              const labels: Record<string, string> = {
+                end: "A \u2192 B",
+                start: "A \u2190 B",
+                both: "A \u2194 B",
+                none: "A \u2014 B",
+              };
+              return (
+                <button
+                  key={hs}
+                  onClick={() => setArrowHeadStyle(hs)}
+                  className={`px-3 py-1 text-xs rounded transition-colors border-none cursor-pointer ${
+                    arrowHeadStyle === hs
+                      ? "bg-amber-50 text-amber-700"
+                      : "bg-transparent text-gray-500 hover:bg-gray-100"
+                  }`}
+                  title={hs}
+                >
+                  {labels[hs]}
+                </button>
+              );
+            })}
+          </div>
+          <ColorSelector onSelect={() => {}} />
+        </div>
+      )}
+
       {/* Paint brush indicator */}
       {paintBrush && (
         <div className="flex items-center justify-center gap-2 px-3 py-1 bg-blue-50 border-b border-blue-100 text-xs text-blue-700">
@@ -330,6 +431,19 @@ export function BottomToolbar({ onOpenGlossary, onOpenNotes }: Props) {
           <button
             onClick={clearPaintBrush}
             className="text-blue-500 hover:text-blue-700 bg-transparent border-none cursor-pointer underline text-xs"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Arrow mode indicator */}
+      {arrowMode && (
+        <div className="flex items-center justify-center gap-2 px-3 py-1 bg-amber-50 border-b border-amber-100 text-xs text-amber-700">
+          <span>{arrowSource ? "Tap target word" : "Tap source word, or click arrow to remove"}</span>
+          <button
+            onClick={() => setArrowMode(false)}
+            className="text-amber-500 hover:text-amber-700 bg-transparent border-none cursor-pointer underline text-xs"
           >
             Cancel
           </button>
@@ -381,6 +495,21 @@ export function BottomToolbar({ onOpenGlossary, onOpenNotes }: Props) {
             weight={activeTab === "underline" ? "fill" : "regular"}
           />
           <span className="hidden sm:inline">Underline</span>
+        </button>
+
+        <button
+          onClick={() => setArrowMode(!arrowMode)}
+          className={`flex-1 flex items-center justify-center gap-1 py-2.5 text-xs font-medium transition-colors border-none cursor-pointer ${
+            arrowMode
+              ? "text-amber-600 bg-amber-50"
+              : "text-gray-500 bg-transparent hover:bg-gray-50"
+          }`}
+        >
+          <ArrowBendUpRight
+            size={16}
+            weight={arrowMode ? "fill" : "regular"}
+          />
+          <span className="hidden sm:inline">Arrow</span>
         </button>
 
         <button

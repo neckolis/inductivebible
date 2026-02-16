@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { authClient } from "../lib/auth-client";
+import { deleteAccountOnServer } from "../lib/sync";
+import { usePreferenceStore } from "./preferenceStore";
 
 interface AuthUser {
   id: string;
@@ -14,6 +16,7 @@ interface AuthState {
   init: () => void;
   signOut: () => Promise<void>;
   claimDevice: () => Promise<void>;
+  deleteAccount: () => Promise<boolean>;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -27,6 +30,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ user: data.user as AuthUser, loading: false });
         // Attempt to claim device data on session init
         get().claimDevice();
+        // Load user preferences
+        usePreferenceStore.getState().load();
       } else {
         set({ user: null, loading: false });
       }
@@ -38,6 +43,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signOut: async () => {
     await authClient.signOut();
     set({ user: null });
+  },
+
+  deleteAccount: async () => {
+    const ok = await deleteAccountOnServer();
+    if (ok) {
+      await authClient.signOut();
+      localStorage.clear();
+      set({ user: null });
+    }
+    return ok;
   },
 
   claimDevice: async () => {

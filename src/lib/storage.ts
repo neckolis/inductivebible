@@ -89,3 +89,55 @@ export function saveMarkings(
     // localStorage full or unavailable
   }
 }
+
+// --- Arrow connections ---
+
+const ARROWS_PREFIX = "arrows:";
+
+export type ArrowStyle = "solid" | "dashed" | "dotted";
+export type ArrowHeadStyle = "end" | "start" | "both" | "none";
+
+export interface ArrowConnection {
+  id: string;
+  fromVerse: number;
+  fromWord: number;
+  toVerse: number;
+  toWord: number;
+  color: string;
+  style: ArrowStyle;
+  headStyle?: ArrowHeadStyle;
+  createdAt: number;
+}
+
+export function loadArrows(
+  translation: string,
+  book: number,
+  chapter: number
+): ArrowConnection[] {
+  const key = `${ARROWS_PREFIX}${translation}:${book}:${chapter}`;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+
+export function saveArrows(
+  translation: string,
+  book: number,
+  chapter: number,
+  arrows: ArrowConnection[]
+): void {
+  const key = `${ARROWS_PREFIX}${translation}:${book}:${chapter}`;
+  try {
+    if (arrows.length === 0) {
+      localStorage.removeItem(key);
+    } else {
+      localStorage.setItem(key, JSON.stringify(arrows));
+    }
+  } catch {
+    // localStorage full or unavailable
+  }
+}

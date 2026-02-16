@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { syncMemoryToCloud, fetchMemoryFromCloud } from "../lib/sync";
 
 const STORAGE_KEY = "word-symbol-memory";
-const SUGGESTION_THRESHOLD = 3;
+const SUGGESTION_THRESHOLD = 1;
 
 export interface WordAssociation {
   word: string;
@@ -20,6 +20,9 @@ interface MemoryState {
 
   // Get suggestions for a word, sorted by confidence
   getSuggestions: (word: string) => WordAssociation[];
+
+  // Get merged suggestions across multiple words, deduped by symbol value
+  getAllSuggestions: (words: string[]) => WordAssociation[];
 }
 
 function loadFromStorage(): Record<string, WordAssociation[]> {
@@ -113,6 +116,20 @@ export const useMemoryStore = create<MemoryState>((set, get) => {
       return assocs
         .filter((a) => a.count >= SUGGESTION_THRESHOLD)
         .sort((a, b) => confidence(b) - confidence(a));
+    },
+
+    getAllSuggestions: (words) => {
+      const seen = new Set<string>();
+      const results: WordAssociation[] = [];
+      for (const word of words) {
+        for (const assoc of get().getSuggestions(word)) {
+          if (!seen.has(assoc.symbol)) {
+            seen.add(assoc.symbol);
+            results.push(assoc);
+          }
+        }
+      }
+      return results.sort((a, b) => confidence(b) - confidence(a));
     },
   };
 });

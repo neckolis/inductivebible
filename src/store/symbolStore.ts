@@ -14,14 +14,18 @@ export interface SymbolDef {
 const STORAGE_KEY = "symbol-library";
 
 const DEFAULT_SYMBOLS: SymbolDef[] = [
-  { icon: "Cross", label: "Christ", color: "#dc2626", weight: "fill", usageCount: 0, lastUsed: 0 },
+  { icon: "Cross", label: "Christ / Jesus", color: "#dc2626", weight: "fill", usageCount: 0, lastUsed: 0 },
   { icon: "Triangle", label: "God", color: "#2563eb", weight: "fill", usageCount: 0, lastUsed: 0 },
-  { icon: "Bird", label: "Holy Spirit", color: "#7c3aed", weight: "fill", usageCount: 0, lastUsed: 0 },
-  { icon: "Star", label: "Key verse", color: "#d97706", weight: "fill", usageCount: 0, lastUsed: 0 },
+  { icon: "Dove", label: "Holy Spirit", color: "#7c3aed", weight: "fill", usageCount: 0, lastUsed: 0 },
+  { icon: "Covenant", label: "Covenant", color: "#d97706", weight: "fill", usageCount: 0, lastUsed: 0 },
   { icon: "Heart", label: "Love", color: "#e11d48", weight: "fill", usageCount: 0, lastUsed: 0 },
-  { icon: "Sword", label: "Sin/Evil", color: "#374151", weight: "fill", usageCount: 0, lastUsed: 0 },
+  { icon: "Trident", label: "Satan / Evil", color: "#374151", weight: "regular", usageCount: 0, lastUsed: 0 },
   { icon: "HandsPraying", label: "Prayer", color: "#0891b2", weight: "fill", usageCount: 0, lastUsed: 0 },
-  { icon: "Clock", label: "Time/When", color: "#059669", weight: "fill", usageCount: 0, lastUsed: 0 },
+  { icon: "Clock", label: "Time / When", color: "#059669", weight: "fill", usageCount: 0, lastUsed: 0 },
+  { icon: "Lamb", label: "Sacrifice / Lamb", color: "#dc2626", weight: "fill", usageCount: 0, lastUsed: 0 },
+  { icon: "Tablets", label: "Law / Commands", color: "#1d4ed8", weight: "fill", usageCount: 0, lastUsed: 0 },
+  { icon: "Tombstone", label: "Death / Die", color: "#6b7280", weight: "fill", usageCount: 0, lastUsed: 0 },
+  { icon: "Chalice", label: "Blood / Cup", color: "#991b1b", weight: "fill", usageCount: 0, lastUsed: 0 },
 ];
 
 function loadFromStorage(): SymbolDef[] {

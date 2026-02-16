@@ -5,7 +5,12 @@ import {
   hasAnyMarking,
   type WordMarkings,
 } from "../lib/storage";
-import { syncMarkingsToCloud, fetchMarkingsFromCloud } from "../lib/sync";
+import {
+  syncMarkingsToCloud,
+  fetchMarkingsFromCloud,
+  fetchMarkingsBackup,
+  restoreMarkingsFromBackup,
+} from "../lib/sync";
 
 export type MarkingType = "symbol" | "highlight" | "underline";
 
@@ -26,6 +31,9 @@ interface MarkingState {
   redoStack: Record<string, WordMarkings>[];
   lastAction: string | null;
 
+  // Cloud backup
+  hasCloudBackup: boolean;
+
   loadChapter: (translation: string, book: number, chapter: number) => void;
   addMarking: (
     verse: number,
@@ -42,6 +50,8 @@ interface MarkingState {
   redo: () => void;
   canUndo: () => boolean;
   canRedo: () => boolean;
+  checkBackup: () => void;
+  restoreFromBackup: () => Promise<void>;
 }
 
 function pushUndo(
@@ -71,10 +81,16 @@ export const useMarkingStore = create<MarkingState>((set, get) => ({
   undoStack: [],
   redoStack: [],
   lastAction: null,
+  hasCloudBackup: false,
 
   loadChapter: (translation, book, chapter) => {
     const markings = loadMarkings(translation, book, chapter);
-    set({ translation, book, chapter, markings, undoStack: [], redoStack: [], lastAction: null });
+    set({ translation, book, chapter, markings, undoStack: [], redoStack: [], lastAction: null, hasCloudBackup: false });
+
+    // Check for backup if local markings are empty
+    if (Object.keys(markings).length === 0) {
+      get().checkBackup();
+    }
 
     // Background cloud sync: pull and merge
     fetchMarkingsFromCloud(translation, book, chapter).then(({ data }) => {
@@ -162,6 +178,8 @@ export const useMarkingStore = create<MarkingState>((set, get) => ({
         lastAction: `Cleared ${count} marks`,
       };
       persist(state.translation, state.book, state.chapter, {});
+      // Check for cloud backup after sync completes
+      setTimeout(() => get().checkBackup(), 2000);
       return newState;
     });
   },
@@ -245,4 +263,28 @@ export const useMarkingStore = create<MarkingState>((set, get) => ({
 
   canUndo: () => get().undoStack.length > 0,
   canRedo: () => get().redoStack.length > 0,
+
+  checkBackup: () => {
+    const { translation, book, chapter } = get();
+    fetchMarkingsBackup(translation, book, chapter).then(({ data }) => {
+      const current = get();
+      if (current.translation !== translation || current.book !== book || current.chapter !== chapter) return;
+      set({ hasCloudBackup: data !== null && Object.keys(data).length > 0 });
+    });
+  },
+
+  restoreFromBackup: async () => {
+    const { translation, book, chapter } = get();
+    const result = await restoreMarkingsFromBackup(translation, book, chapter);
+    if (result.ok && result.data) {
+      set((state) => ({
+        markings: result.data!,
+        undoStack: pushUndo(state.undoStack, state.markings),
+        redoStack: [] as Record<string, WordMarkings>[],
+        lastAction: null,
+        hasCloudBackup: false,
+      }));
+      saveMarkings(translation, book, chapter, result.data);
+    }
+  },
 }));

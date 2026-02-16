@@ -14,18 +14,8 @@ import { AuthScreen } from "../components/AuthScreen";
 import { ProfileMenu } from "../components/ProfileMenu";
 import { useAuthStore } from "../store/authStore";
 import { useSwipeNavigation } from "../lib/useSwipeNavigation";
+import { TRANSLATIONS } from "../lib/translations";
 import type { BibleVerse } from "../lib/types";
-
-const TRANSLATIONS = [
-  { id: "NASB", label: "NASB" },
-  { id: "ESV", label: "ESV" },
-  { id: "KJV", label: "KJV" },
-  { id: "NKJV", label: "NKJV" },
-  { id: "NIV", label: "NIV" },
-  { id: "NLT", label: "NLT" },
-  { id: "YLT", label: "YLT" },
-  { id: "ASV", label: "ASV" },
-];
 
 export function BibleReader() {
   const { translation = "NASB", book, chapter } = useParams();

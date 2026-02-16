@@ -145,6 +145,18 @@ async function handleDataAPI(request: Request, url: URL, env: Env): Promise<Resp
     return handleMe(owner, env);
   }
 
+  if (path === "delete-account" && request.method === "POST") {
+    return handleDeleteAccount(request, owner, env);
+  }
+
+  if (path === "preferences") {
+    return handlePreferences(request, owner, env);
+  }
+
+  if (path.startsWith("markings-backup/")) {
+    return handleMarkingsBackup(request, path, owner, env);
+  }
+
   if (path.startsWith("markings/")) {
     return handleMarkings(request, path, owner, env);
   }
@@ -258,6 +270,22 @@ async function handleMarkings(
     const body = await request.json() as { data: unknown };
     const now = Date.now();
     const ins = ownerInsertFields(owner);
+
+    // Backup current markings to KV before overwriting with empty data
+    const isClearing = !body.data || (typeof body.data === "object" && Object.keys(body.data as object).length === 0);
+    if (isClearing) {
+      const existing = await env.DB.prepare(
+        `SELECT data FROM markings WHERE ${clause} AND translation = ? AND book = ? AND chapter = ?`
+      ).bind(param, translation, book, chapter).first();
+      if (existing?.data) {
+        const parsed = JSON.parse(existing.data as string);
+        if (Object.keys(parsed).length > 0) {
+          const ownerId = owner.userId ?? owner.deviceId!;
+          const backupKey = `backup:markings:${ownerId}:${translation}:${book}:${chapter}`;
+          await env.CACHE.put(backupKey, existing.data as string, { expirationTtl: 7 * 86400 });
+        }
+      }
+    }
 
     await env.DB.prepare(
       `INSERT INTO markings (${ins.columns}, translation, book, chapter, data, updated_at)
@@ -396,12 +424,147 @@ async function handleNotes(
   return corsJson({ error: "Method not allowed" }, 405);
 }
 
+// --------------- Delete account ---------------
+
+async function handleDeleteAccount(
+  request: Request,
+  owner: Owner,
+  env: Env
+): Promise<Response> {
+  if (!owner.userId) {
+    return corsJson({ error: "Must be authenticated to delete account" }, 401);
+  }
+
+  const body = await request.json() as { confirm?: string };
+  if (body.confirm !== "DELETE") {
+    return corsJson({ error: 'Must send { "confirm": "DELETE" } to confirm' }, 400);
+  }
+
+  const userId = owner.userId;
+
+  // Look up email for verification table cleanup
+  const userRow = await env.DB.prepare(
+    'SELECT email FROM "user" WHERE id = ?'
+  ).bind(userId).first();
+  const email = userRow?.email as string | undefined;
+
+  // 1. Delete data tables
+  const dataTables = ["markings", "symbols", "memory", "notes", "preferences"];
+  for (const table of dataTables) {
+    await env.DB.prepare(`DELETE FROM ${table} WHERE user_id = ?`).bind(userId).run();
+  }
+
+  // 2. Delete auth tables
+  await env.DB.prepare('DELETE FROM "session" WHERE "userId" = ?').bind(userId).run();
+  await env.DB.prepare('DELETE FROM "account" WHERE "userId" = ?').bind(userId).run();
+  if (email) {
+    await env.DB.prepare('DELETE FROM "verification" WHERE "identifier" = ?').bind(email).run();
+  }
+  await env.DB.prepare('DELETE FROM "user" WHERE id = ?').bind(userId).run();
+
+  return corsJson({ ok: true });
+}
+
+// --------------- Markings backup ---------------
+
+async function handleMarkingsBackup(
+  request: Request,
+  path: string,
+  owner: Owner,
+  env: Env
+): Promise<Response> {
+  const parts = path.replace("markings-backup/", "").split("/");
+  const [translation, bookStr, chapterStr] = parts;
+
+  if (!translation || !bookStr || !chapterStr) {
+    return corsJson({ error: "Invalid path" }, 400);
+  }
+
+  const book = Number(bookStr);
+  const chapter = Number(chapterStr);
+  const ownerId = owner.userId ?? owner.deviceId!;
+  const backupKey = `backup:markings:${ownerId}:${translation}:${book}:${chapter}`;
+
+  if (request.method === "GET") {
+    const backup = await env.CACHE.get(backupKey);
+    if (!backup) {
+      return corsJson({ data: null });
+    }
+    return corsJson({ data: JSON.parse(backup) });
+  }
+
+  if (request.method === "POST") {
+    // Restore: read backup from KV and write into D1
+    const backup = await env.CACHE.get(backupKey);
+    if (!backup) {
+      return corsJson({ error: "No backup found" }, 404);
+    }
+
+    const now = Date.now();
+    const { clause, param } = ownerWhere(owner);
+    const ins = ownerInsertFields(owner);
+
+    await env.DB.prepare(
+      `INSERT INTO markings (${ins.columns}, translation, book, chapter, data, updated_at)
+       VALUES (${ins.values}, ?, ?, ?, ?, ?)
+       ON CONFLICT(device_id, translation, book, chapter)
+       DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at, user_id = COALESCE(excluded.user_id, user_id)`
+    ).bind(...ins.params, translation, book, chapter, backup, now).run();
+
+    // Delete the backup after restoring
+    await env.CACHE.delete(backupKey);
+
+    return corsJson({ ok: true, data: JSON.parse(backup), updatedAt: now });
+  }
+
+  return corsJson({ error: "Method not allowed" }, 405);
+}
+
+// --------------- Preferences ---------------
+
+async function handlePreferences(
+  request: Request,
+  owner: Owner,
+  env: Env
+): Promise<Response> {
+  if (!owner.userId) {
+    return corsJson({ error: "Must be authenticated to use preferences" }, 401);
+  }
+
+  if (request.method === "GET") {
+    const row = await env.DB.prepare(
+      "SELECT data, updated_at FROM preferences WHERE user_id = ?"
+    ).bind(owner.userId).first();
+
+    return corsJson({
+      data: row ? JSON.parse(row.data as string) : null,
+      updatedAt: row ? row.updated_at : null,
+    });
+  }
+
+  if (request.method === "PUT") {
+    const body = await request.json() as { data: unknown };
+    const now = Date.now();
+
+    await env.DB.prepare(
+      `INSERT INTO preferences (user_id, data, updated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(user_id)
+       DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
+    ).bind(owner.userId, JSON.stringify(body.data), now).run();
+
+    return corsJson({ ok: true, updatedAt: now });
+  }
+
+  return corsJson({ error: "Method not allowed" }, 405);
+}
+
 // --------------- CORS helpers ---------------
 
 function corsHeaders(): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, X-Device-Id",
     "Access-Control-Allow-Credentials": "true",
   };

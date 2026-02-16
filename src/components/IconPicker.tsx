@@ -1,14 +1,75 @@
 import { useState, useMemo, useRef } from "react";
-import { useSymbolStore } from "../store/symbolStore";
+import { useSymbolStore, type SymbolDef } from "../store/symbolStore";
 import { useToolStore, PRESET_COLORS } from "../store/toolStore";
-import { formatSymbolValue } from "../lib/storage";
-import { CURATED_ICON_NAMES, getIconComponent } from "../lib/icons";
+import { useSelectionStore } from "../store/selectionStore";
+import { useMemoryStore } from "../store/memoryStore";
+import { formatSymbolValue, parseSymbolValue } from "../lib/storage";
+import { getIconComponent } from "../lib/icons";
 import { allIconNames, allIcons } from "../lib/allIcons";
+import { searchIcons } from "../lib/icon-tags";
 
 const BookOpen = getIconComponent("BookOpen")!;
 
-const WEIGHTS = ["regular", "bold", "fill", "duotone"] as const;
+const WEIGHTS = ["regular", "fill", "duotone"] as const;
 type Weight = (typeof WEIGHTS)[number];
+
+const MAX_RECENT = 16;
+
+/** Button for search results — uses current palette color/weight */
+function IconButton({ name, Icon, activeColor, weight, onPick }: {
+  name: string;
+  Icon: ReturnType<typeof getIconComponent>;
+  activeColor: string;
+  weight: Weight;
+  onPick: (name: string) => void;
+}) {
+  if (!Icon) return null;
+  return (
+    <button
+      onClick={() => onPick(name)}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData(
+          "application/marking",
+          JSON.stringify({
+            type: "symbol",
+            value: formatSymbolValue(name, activeColor, weight),
+          })
+        );
+      }}
+      className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 transition-colors border-none cursor-pointer bg-transparent"
+      title={name}
+    >
+      <Icon size={18} color={activeColor} weight="regular" />
+    </button>
+  );
+}
+
+/** Button for Recent — renders with the stored color and weight */
+function StoredSymbolButton({ sym, Icon, onApply }: {
+  sym: SymbolDef;
+  Icon: ReturnType<typeof getIconComponent>;
+  onApply: (value: string) => void;
+}) {
+  if (!Icon) return null;
+  const value = formatSymbolValue(sym.icon, sym.color, sym.weight);
+  return (
+    <button
+      onClick={() => onApply(value)}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData(
+          "application/marking",
+          JSON.stringify({ type: "symbol", value })
+        );
+      }}
+      className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 transition-colors border-none cursor-pointer bg-transparent"
+      title={`${sym.icon} (${sym.color})`}
+    >
+      <Icon size={18} color={sym.color} weight={sym.weight as Weight} />
+    </button>
+  );
+}
 
 interface Props {
   onSelect: (symbolValue: string) => void;
@@ -23,34 +84,29 @@ export function IconPicker({ onSelect }: Props) {
   const addCustomColor = useToolStore((s) => s.addCustomColor);
   const removeCustomColor = useToolStore((s) => s.removeCustomColor);
   const symbols = useSymbolStore((s) => s.symbols);
+  const selectedWordTexts = useSelectionStore((s) => s.selectedWordTexts);
+  const getAllSuggestions = useMemoryStore((s) => s.getAllSuggestions);
   const colorInputRef = useRef<HTMLInputElement>(null);
 
-  // Recent icon names, deduped
-  const recentIconNames = useMemo(() => {
-    const seen = new Set<string>();
+  // Smart suggestions from memory store
+  const suggestions = useMemo(() => {
+    if (selectedWordTexts.length === 0) return [];
+    return getAllSuggestions(selectedWordTexts);
+  }, [selectedWordTexts, getAllSuggestions]);
+
+  // Recent: full SymbolDef entries with usage, preserving stored color/weight, max 16
+  const recentSymbols = useMemo(() => {
     return [...symbols]
+      .filter((s) => s.lastUsed > 0)
       .sort((a, b) => b.lastUsed - a.lastUsed || b.usageCount - a.usageCount)
-      .reduce<string[]>((acc, s) => {
-        if (!seen.has(s.icon)) {
-          seen.add(s.icon);
-          acc.push(s.icon);
-        }
-        return acc;
-      }, []);
+      .slice(0, MAX_RECENT);
   }, [symbols]);
 
-  // Grid: when searching, show filtered results. Otherwise, recent first then curated (deduped)
-  const displayIcons = useMemo(() => {
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      return allIconNames
-        .filter((name) => name.toLowerCase().includes(q))
-        .slice(0, 60);
-    }
-    const recentSet = new Set(recentIconNames);
-    const curated = CURATED_ICON_NAMES.filter((n) => !recentSet.has(n));
-    return [...recentIconNames, ...curated];
-  }, [search, recentIconNames]);
+  // Search results using tag-aware search
+  const searchResults = useMemo(() => {
+    if (!search.trim()) return [];
+    return searchIcons(search, allIconNames).map((r) => r.name);
+  }, [search]);
 
   function getIcon(name: string) {
     return allIcons[name] ?? getIconComponent(name);
@@ -60,6 +116,14 @@ export function IconPicker({ onSelect }: Props) {
     onSelect(formatSymbolValue(iconName, activeColor, weight));
   }
 
+  // Suggestion label
+  const suggestionLabel = useMemo(() => {
+    if (selectedWordTexts.length === 0) return "";
+    if (selectedWordTexts.length === 1) return `"${selectedWordTexts[0]}"`;
+    if (selectedWordTexts.length <= 3) return selectedWordTexts.map((w) => `"${w}"`).join(", ");
+    return `"${selectedWordTexts[0]}" + ${selectedWordTexts.length - 1} more`;
+  }, [selectedWordTexts]);
+
   const allColors = [
     ...PRESET_COLORS.map((c) => ({ hex: c.hex, name: c.name, custom: false })),
     ...customColors.map((hex) => ({ hex, name: hex, custom: true })),
@@ -67,46 +131,88 @@ export function IconPicker({ onSelect }: Props) {
 
   return (
     <div className="space-y-1.5" onClick={(e) => e.stopPropagation()}>
+      {/* Suggestion bar */}
+      {suggestions.length > 0 && !search.trim() && (
+        <div>
+          <div className="text-[9px] font-medium text-blue-500 uppercase tracking-wider px-0.5 py-0.5">
+            Suggested for {suggestionLabel} <span className="normal-case text-gray-400">(Enter to apply)</span>
+          </div>
+          <div className="flex gap-1 overflow-x-auto pb-1">
+            {suggestions.map((assoc) => {
+              const parsed = parseSymbolValue(assoc.symbol);
+              if (!parsed) return null;
+              const Icon = getIcon(parsed.icon);
+              if (!Icon) return null;
+              return (
+                <button
+                  key={assoc.symbol}
+                  onClick={() => onSelect(assoc.symbol)}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors cursor-pointer shrink-0 text-xs"
+                  title={`${parsed.icon} (used ${assoc.count}x)`}
+                >
+                  <Icon size={14} color={parsed.color} weight={parsed.weight as Weight} />
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: parsed.color }}
+                  />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Search */}
       <input
         type="text"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search all icons..."
+        placeholder="Search icons..."
         className="w-full px-2 py-1 text-xs border border-gray-200 rounded bg-white outline-none focus:border-blue-400"
       />
 
-      {/* Icon grid - recent prepended, always "regular" weight */}
-      <div className="grid grid-cols-8 gap-0.5 max-h-20 overflow-y-auto">
-        {displayIcons.map((name) => {
-          const Icon = getIcon(name);
-          if (!Icon) return null;
-          return (
-            <button
-              key={name}
-              onClick={() => handlePick(name)}
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData(
-                  "application/marking",
-                  JSON.stringify({
-                    type: "symbol",
-                    value: formatSymbolValue(name, activeColor, weight),
-                  })
+      {/* Icon grid */}
+      <div className="max-h-28 overflow-y-auto">
+        {search.trim() ? (
+          /* Search results — use current palette color/weight */
+          searchResults.length > 0 ? (
+            <div className="grid grid-cols-8 gap-0.5">
+              {searchResults.map((name) => {
+                const Icon = getIcon(name);
+                if (!Icon) return null;
+                return (
+                  <IconButton key={name} name={name} Icon={Icon} activeColor={activeColor} weight={weight} onPick={handlePick} />
                 );
-              }}
-              className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 transition-colors border-none cursor-pointer bg-transparent"
-              title={name}
-            >
-              <Icon size={18} color={activeColor} weight="regular" />
-            </button>
-          );
-        })}
+              })}
+            </div>
+          ) : (
+            <div className="text-xs text-gray-400 text-center py-3">No icons found</div>
+          )
+        ) : (
+          /* Default: only recent (with stored colors) */
+          recentSymbols.length > 0 ? (
+            <div className="grid grid-cols-8 gap-0.5">
+              {recentSymbols.map((sym) => {
+                const Icon = getIcon(sym.icon);
+                return (
+                  <StoredSymbolButton
+                    key={`r-${sym.icon}-${sym.color}-${sym.weight}`}
+                    sym={sym}
+                    Icon={Icon}
+                    onApply={onSelect}
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-xs text-gray-400 text-center py-3">Search to find icons</div>
+          )
+        )}
       </div>
 
       {/* Style + Color on one row */}
       <div className="flex items-center justify-center gap-1 flex-wrap">
-        {/* Style - BookOpen in 4 weights */}
+        {/* Style - BookOpen in 3 weights */}
         {WEIGHTS.map((w) => (
           <button
             key={w}

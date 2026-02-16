@@ -40,6 +40,10 @@ interface Props {
   word: string;
   isSelected: boolean;
   isDragOver?: boolean;
+  trailingSpace?: boolean;
+  continueHighlight?: boolean;
+  continueUnderline?: boolean;
+  suppressSymbol?: boolean;
   onContextMenu?: (e: React.MouseEvent) => void;
   onDragOver?: (e: React.DragEvent) => void;
   onDragLeave?: (e: React.DragEvent) => void;
@@ -84,6 +88,10 @@ export function WordSpan({
   word,
   isSelected,
   isDragOver,
+  trailingSpace = false,
+  continueHighlight = false,
+  continueUnderline = false,
+  suppressSymbol = false,
   onContextMenu,
   onDragOver,
   onDragLeave,
@@ -106,42 +114,74 @@ export function WordSpan({
   if (marking?.highlight) {
     const val = marking.highlight.value;
     if (val.startsWith("#")) {
-      // Hex color → semi-transparent inline style
       inlineStyle.backgroundColor = hexToRgba(val, 0.3);
     } else {
-      // Legacy named color → Tailwind class
       className += (HIGHLIGHT_COLORS[val] ?? "") + " ";
     }
   }
 
   // Apply underline layer
+  let underlineStyleClass = "";
+  let underlineColorStyle: string | undefined;
+  let underlineColorClass = "";
   if (marking?.underline) {
     const parts = marking.underline.value.split(":");
     const style = parts[0];
     const color = parts[1];
-    className += (UNDERLINE_STYLE_CLASS[style] ?? "underline") + " ";
+    underlineStyleClass = UNDERLINE_STYLE_CLASS[style] ?? "underline";
+    className += underlineStyleClass + " ";
     if (color?.startsWith("#")) {
-      // Hex color → inline style
       inlineStyle.textDecorationColor = color;
+      underlineColorStyle = color;
     } else {
-      // Legacy named color → Tailwind class
-      className += (color ? UNDERLINE_COLOR_CLASS[color] ?? "" : "decoration-gray-700") + " ";
+      underlineColorClass = color ? UNDERLINE_COLOR_CLASS[color] ?? "" : "decoration-gray-700";
+      className += underlineColorClass + " ";
+    }
+  }
+
+  // Build gap span styles for continuous highlight/underline through trailing space
+  const needsGapSpan = trailingSpace && (continueHighlight || continueUnderline);
+  let gapClassName = "";
+  const gapStyle: React.CSSProperties = {};
+
+  if (needsGapSpan) {
+    if (continueHighlight && marking?.highlight) {
+      const val = marking.highlight.value;
+      if (val.startsWith("#")) {
+        gapStyle.backgroundColor = hexToRgba(val, 0.3);
+      } else {
+        gapClassName += (HIGHLIGHT_COLORS[val] ?? "") + " ";
+      }
+    }
+    if (continueUnderline && marking?.underline) {
+      gapClassName += underlineStyleClass + " ";
+      if (underlineColorStyle) {
+        gapStyle.textDecorationColor = underlineColorStyle;
+      } else {
+        gapClassName += underlineColorClass + " ";
+      }
     }
   }
 
   return (
-    <span
-      className={className}
-      style={Object.keys(inlineStyle).length > 0 ? inlineStyle : undefined}
-      onContextMenu={onContextMenu}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-      data-verse={verse}
-      data-word={wordIndex}
-    >
-      {marking?.symbol && renderSymbol(marking.symbol.value)}
-      {word}
-    </span>
+    <>
+      <span
+        className={className}
+        style={Object.keys(inlineStyle).length > 0 ? inlineStyle : undefined}
+        onContextMenu={onContextMenu}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        data-verse={verse}
+        data-word={wordIndex}
+      >
+        {marking?.symbol && !suppressSymbol && renderSymbol(marking.symbol.value)}
+        {word}
+      </span>
+      {trailingSpace && (needsGapSpan
+        ? <span className={gapClassName} style={Object.keys(gapStyle).length > 0 ? gapStyle : undefined}>{" "}</span>
+        : " "
+      )}
+    </>
   );
 }
