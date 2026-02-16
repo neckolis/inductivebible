@@ -7,7 +7,7 @@ import {
   BookOpen,
   NotePencil,
 } from "../lib/icons";
-import { ArrowBendUpRight } from "@phosphor-icons/react";
+import { ArrowBendUpRight, ChatCircle } from "@phosphor-icons/react";
 import {
   useSelectionStore,
   getSelectionRange,
@@ -35,9 +35,10 @@ type Tab = "highlight" | "symbol" | "underline" | null;
 interface Props {
   onOpenGlossary: () => void;
   onOpenNotes: () => void;
+  onOpenChat: () => void;
 }
 
-export function BottomToolbar({ onOpenGlossary, onOpenNotes }: Props) {
+export function BottomToolbar({ onOpenGlossary, onOpenNotes, onOpenChat }: Props) {
   const { anchor, focus } = useSelectionStore();
   const selectedWordTexts = useSelectionStore((s) => s.selectedWordTexts);
   const { addMarking, removeMarking, markings } = useMarkingStore();
@@ -274,6 +275,11 @@ export function BottomToolbar({ onOpenGlossary, onOpenNotes }: Props) {
       if ((e.key === "n" || e.key === "N") && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         onOpenNotes();
+      }
+
+      if (e.key === "i" && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        onOpenChat();
       }
 
       // Enter: quick-apply first suggestion
@@ -530,11 +536,19 @@ export function BottomToolbar({ onOpenGlossary, onOpenNotes }: Props) {
         </button>
 
         <button
+          onClick={onOpenChat}
+          className="flex-1 flex items-center justify-center gap-1 py-2.5 text-xs font-medium text-gray-500 bg-transparent hover:bg-gray-50 transition-colors border-none cursor-pointer"
+        >
+          <ChatCircle size={16} />
+          <span className="hidden sm:inline">AI</span>
+        </button>
+
+        <button
           onClick={onOpenGlossary}
           className="flex-1 flex items-center justify-center gap-1 py-2.5 text-xs font-medium text-gray-500 bg-transparent hover:bg-gray-50 transition-colors border-none cursor-pointer"
         >
           <BookOpen size={16} />
-          <span className="hidden sm:inline">Glossary</span>
+          <span className="hidden sm:inline">Dict</span>
         </button>
       </div>
     </div>

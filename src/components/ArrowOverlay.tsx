@@ -72,16 +72,12 @@ function buildPath(
   const y2 = to.y - to.height / 2 - LIFT;
 
   if (Math.abs(y1 - y2) < LINE_THRESHOLD) {
-    // Same-line: straight up → arc → straight down
-    const sy1 = y1 - APPROACH;
-    const sy2 = y2 - APPROACH;
-    const midX = (x1 + x2) / 2;
-    const dist = Math.abs(x2 - x1);
-    const arcH = Math.min(dist * 0.4, 40);
+    // Same-line: straight up, across, straight down
+    const liftY = Math.min(y1, y2) - APPROACH;
     return [
       `M ${x1} ${y1}`,
-      `L ${x1} ${sy1}`,
-      `Q ${midX} ${Math.min(sy1, sy2) - arcH} ${x2} ${sy2}`,
+      `L ${x1} ${liftY}`,
+      `L ${x2} ${liftY}`,
       `L ${x2} ${y2}`,
     ].join(" ");
   }

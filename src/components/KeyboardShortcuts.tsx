@@ -20,7 +20,7 @@ const SHORTCUT_GROUPS = [
       { keys: ["\u2318", "U"], desc: "Cycle underline style" },
       { keys: ["C"], desc: "Clear all marks from selection" },
       { keys: ["\u232B"], desc: "Remove marks from selection" },
-      { keys: ["G"], desc: "Open glossary" },
+      { keys: ["G"], desc: "Open dictionary" },
     ],
   },
   {

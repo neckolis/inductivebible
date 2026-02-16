@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, lazy, Suspense } from "react";
 import { fetchChapter } from "../lib/api";
 import { getBookById, BOOKS } from "../lib/books";
 import { BibleText } from "../components/BibleText";
@@ -13,9 +13,14 @@ import { NoteEditor } from "../components/NoteEditor";
 import { AuthScreen } from "../components/AuthScreen";
 import { ProfileMenu } from "../components/ProfileMenu";
 import { useAuthStore } from "../store/authStore";
+import { useChatStore } from "../store/chatStore";
 import { useSwipeNavigation } from "../lib/useSwipeNavigation";
 import { TRANSLATIONS } from "../lib/translations";
 import type { BibleVerse } from "../lib/types";
+
+const ChatPanel = lazy(() =>
+  import("../components/ChatPanel").then((m) => ({ default: m.ChatPanel }))
+);
 
 export function BibleReader() {
   const { translation = "NASB", book, chapter } = useParams();
@@ -29,10 +34,11 @@ export function BibleReader() {
   const [verses, setVerses] = useState<BibleVerse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [glossaryOpen, setGlossaryOpen] = useState(false);
+  const [dictionaryOpen, setDictionaryOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const initAuth = useAuthStore((s) => s.init);
+  const toggleChat = useChatStore((s) => s.toggle);
 
   useEffect(() => {
     initAuth();
@@ -195,8 +201,8 @@ export function BibleReader() {
 
 
       <CommandPalette />
-      <BottomToolbar onOpenGlossary={() => setGlossaryOpen(true)} onOpenNotes={() => setNotesOpen(true)} />
-      <Glossary open={glossaryOpen} onClose={() => setGlossaryOpen(false)} />
+      <BottomToolbar onOpenGlossary={() => setDictionaryOpen(true)} onOpenNotes={() => setNotesOpen(true)} onOpenChat={toggleChat} />
+      <Glossary open={dictionaryOpen} onClose={() => setDictionaryOpen(false)} book={bookNum} chapter={chapterNum} />
       <KeyboardShortcuts />
       <NoteEditor
         open={notesOpen}
@@ -206,6 +212,9 @@ export function BibleReader() {
         chapter={chapterNum}
       />
       <AuthScreen open={authOpen} onClose={() => setAuthOpen(false)} />
+      <Suspense fallback={null}>
+        <ChatPanel onSignIn={() => { useChatStore.getState().close(); setAuthOpen(true); }} />
+      </Suspense>
     </div>
   );
 }

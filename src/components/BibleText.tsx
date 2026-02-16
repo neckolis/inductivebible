@@ -15,8 +15,11 @@ import { useToolStore } from "../store/toolStore";
 import { useArrowStore } from "../store/arrowStore";
 import { useMemoryStore } from "../store/memoryStore";
 import { useSymbolStore } from "../store/symbolStore";
+import { useChatStore } from "../store/chatStore";
 import { hasAnyMarking, type WordMarkings, type ArrowConnection, parseSymbolValue } from "../lib/storage";
 import { ArrowOverlay } from "./ArrowOverlay";
+import { getBookById } from "../lib/books";
+import { ChatCircle } from "@phosphor-icons/react";
 
 interface Props {
   verses: BibleVerse[];
@@ -87,6 +90,9 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [dragOverWord, setDragOverWord] = useState<string | null>(null);
+  const [askAiPos, setAskAiPos] = useState<{ x: number; y: number } | null>(null);
+  const setSelectionContext = useChatStore((s) => s.setSelectionContext);
+  const openChat = useChatStore((s) => s.open);
 
   // Drag-to-select state
   const dragStateRef = useRef<{ active: boolean; startWord: WordId | null; moved: boolean }>({
@@ -109,7 +115,10 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
 
   // Derive selectedWordTexts from current selection range
   useEffect(() => {
-    if (!anchor || !focus) return;
+    if (!anchor || !focus) {
+      setAskAiPos(null);
+      return;
+    }
     const [start, end] = getSelectionRange(anchor, focus);
     const texts: string[] = [];
     for (const verseWords of allVerseWords) {
@@ -354,10 +363,20 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
     }
   }
 
-  function handlePointerUp() {
+  function handlePointerUp(e: React.PointerEvent) {
     if (!dragStateRef.current.active) return;
+    const wasDrag = dragStateRef.current.moved;
     dragStateRef.current.active = false;
     setDragging(false);
+
+    // Show "Ask AI" floating button if user dragged a selection (not paint mode, not arrow mode)
+    if (wasDrag && !paintBrush && !arrowMode) {
+      const { anchor: a, focus: f } = useSelectionStore.getState();
+      if (a && f) {
+        setAskAiPos({ x: e.clientX, y: e.clientY - 40 });
+      }
+    }
+
   }
 
   function handleContextMenu(
@@ -410,6 +429,32 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
     } catch {
       // invalid data
     }
+  }
+
+  function handleAskAi() {
+    if (!anchor || !focus) return;
+    const [start, end] = getSelectionRange(anchor, focus);
+    const bookInfo = getBookById(book);
+    const bookName = bookInfo?.name ?? `Book ${book}`;
+    const texts: string[] = [];
+    for (const verseWords of allVerseWords) {
+      for (const w of verseWords) {
+        if (isWordInRange({ verse: w.verse, wordIndex: w.wordIndex }, start, end)) {
+          texts.push(w.word);
+        }
+      }
+    }
+    setSelectionContext({
+      bookName,
+      book,
+      chapter,
+      startVerse: start.verse,
+      endVerse: end.verse,
+      translation,
+      selectedText: texts.join(" "),
+    });
+    setAskAiPos(null);
+    openChat();
   }
 
   return (
@@ -540,6 +585,23 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
           }}
           onCancel={() => setShowClearConfirm(false)}
         />
+      )}
+
+      {askAiPos && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleAskAi();
+          }}
+          className="fixed z-50 flex items-center gap-1 px-2.5 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium rounded-lg shadow-lg border-none cursor-pointer transition-colors"
+          style={{
+            left: Math.min(askAiPos.x, window.innerWidth - 100),
+            top: Math.max(askAiPos.y, 8),
+          }}
+        >
+          <ChatCircle size={14} weight="fill" />
+          Ask AI
+        </button>
       )}
 
       <ArrowOverlay containerRef={containerRef} />

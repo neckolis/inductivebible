@@ -17,3 +17,13 @@ export interface BookInfo {
   abbrevs: string[];
   chapters: number;
 }
+
+export interface WordStudyEntry {
+  word: string;
+  strongs: string;
+  lexeme: string;
+  transliteration: string;
+  pronunciation: string;
+  shortDefinition: string;
+  definition: string;
+}

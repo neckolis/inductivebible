@@ -12,6 +12,12 @@ export default defineConfig({
         rewrite: (path) =>
           path.replace(/^\/api\/bible/, "/get-chapter"),
       },
+      "/api/dict": {
+        target: "https://bolls.life",
+        changeOrigin: true,
+        rewrite: (path) =>
+          path.replace(/^\/api\/dict/, "/dictionary-definition/BDBT"),
+      },
     },
   },
 });
