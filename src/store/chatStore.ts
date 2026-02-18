@@ -29,6 +29,7 @@ interface SelectionContext {
 
 interface ChatState {
   isOpen: boolean;
+  chatWidth: number;
   conversations: Conversation[];
   activeConversationId: string | null;
   messages: Message[];
@@ -39,6 +40,7 @@ interface ChatState {
   open: () => void;
   close: () => void;
   toggle: () => void;
+  setChatWidth: (w: number) => void;
   setSelectionContext: (ctx: SelectionContext | null) => void;
   loadConversations: () => Promise<void>;
   createConversation: () => Promise<string>;
@@ -64,6 +66,7 @@ function fetchOpts(extra?: RequestInit): RequestInit {
 
 export const useChatStore = create<ChatState>((set, get) => ({
   isOpen: false,
+  chatWidth: 420,
   conversations: [],
   activeConversationId: null,
   messages: [],
@@ -87,6 +90,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       get().close();
     }
   },
+
+  setChatWidth: (w) => set({ chatWidth: w }),
 
   setSelectionContext: (ctx) => set({ selectionContext: ctx }),
 
@@ -265,10 +270,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return;
       }
 
-      // Read SSE stream
+      // Read SSE stream — batch chunks with rAF for smooth rendering
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let pendingContent = "";
+      let rafId: number | null = null;
+
+      function flushContent() {
+        if (!pendingContent) return;
+        const chunk = pendingContent;
+        pendingContent = "";
+        rafId = null;
+        set((s) => ({
+          messages: s.messages.map((m) =>
+            m.id === assistantMsg.id
+              ? { ...m, content: m.content + chunk }
+              : m
+          ),
+        }));
+      }
 
       while (true) {
         const { done, value } = await reader.read();
@@ -286,19 +307,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
           try {
             const parsed = JSON.parse(data);
             if (parsed.content) {
-              set((s) => ({
-                messages: s.messages.map((m) =>
-                  m.id === assistantMsg.id
-                    ? { ...m, content: m.content + parsed.content }
-                    : m
-                ),
-              }));
+              pendingContent += parsed.content;
+              if (rafId === null) {
+                rafId = requestAnimationFrame(flushContent);
+              }
             }
           } catch {
             // skip
           }
         }
       }
+
+      // Flush any remaining buffered content
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      flushContent();
 
       // Mark streaming complete
       set((s) => ({

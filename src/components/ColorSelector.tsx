@@ -52,7 +52,7 @@ export function ColorSelector({ onSelect }: Props) {
             ref={inputRef}
             type="color"
             value={activeColor}
-            className="absolute opacity-0 w-0 h-0 pointer-events-none"
+            className="absolute -left-[9999px] w-px h-px pointer-events-none opacity-0"
             onChange={(e) => {
               addCustomColor(e.target.value);
               onSelect?.(e.target.value);

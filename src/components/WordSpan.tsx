@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { useMarkingStore } from "../store/markingStore";
 import { parseSymbolValue } from "../lib/storage";
 import { getIconComponent } from "../lib/icons";
@@ -82,7 +83,7 @@ function renderSymbol(value: string) {
   );
 }
 
-export function WordSpan({
+export const WordSpan = memo(function WordSpan({
   verse,
   wordIndex,
   word,
@@ -103,7 +104,7 @@ export function WordSpan({
   const inlineStyle: React.CSSProperties = {};
 
   if (isSelected) {
-    className += "bg-blue-100 ";
+    className += "ring-2 ring-blue-500/70 ring-offset-1 ";
   }
 
   if (isDragOver) {
@@ -184,4 +185,4 @@ export function WordSpan({
       )}
     </>
   );
-}
+});

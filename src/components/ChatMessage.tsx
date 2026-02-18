@@ -1,6 +1,7 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { WordStudyEntry } from "../lib/types";
 import { WordStudyCard } from "./WordStudyCard";
+import { Copy, Check } from "@phosphor-icons/react";
 
 interface Props {
   role: "user" | "assistant";
@@ -58,6 +59,27 @@ function renderMarkdown(content: string) {
   });
 }
 
+function CopyButton({ content }: { content: string }) {
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="p-1 text-gray-400 hover:text-gray-600 bg-transparent border-none cursor-pointer rounded transition-colors"
+      title="Copy"
+    >
+      {copied ? <Check size={14} weight="bold" /> : <Copy size={14} />}
+    </button>
+  );
+}
+
 export function ChatMessage({ role, content, isStreaming, wordStudy }: Props) {
   const isUser = role === "user";
 
@@ -81,11 +103,21 @@ export function ChatMessage({ role, content, isStreaming, wordStudy }: Props) {
         {!isUser && !content && isStreaming && (
           <span className="inline-block w-2 h-4 bg-gray-400 animate-pulse rounded-sm" />
         )}
-        {content && renderMarkdown(content)}
+        {content && isStreaming ? (
+          <div className="whitespace-pre-wrap">{content}</div>
+        ) : content ? (
+          renderMarkdown(content)
+        ) : null}
         {isStreaming && content && (
           <span className="inline-block w-1.5 h-4 bg-gray-400 animate-pulse rounded-sm ml-0.5 align-text-bottom" />
         )}
       </div>
+      {/* Copy button for assistant messages (only when not streaming) */}
+      {!isUser && content && !isStreaming && (
+        <div className="mt-1 ml-1">
+          <CopyButton content={content} />
+        </div>
+      )}
       </div>
     </div>
   );

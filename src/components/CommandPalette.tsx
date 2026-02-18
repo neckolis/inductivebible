@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Command } from "cmdk";
 import * as Dialog from "@radix-ui/react-dialog";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
@@ -8,9 +8,36 @@ import { parseReference } from "../lib/parseReference";
 import { useMarkingStore } from "../store/markingStore";
 import { useSelectionStore } from "../store/selectionStore";
 
+const RECENT_KEY = "recent-chapters";
+const MAX_RECENT = 8;
+
+interface RecentChapter {
+  translation: string;
+  book: number;
+  chapter: number;
+  ts: number;
+}
+
+function loadRecent(): RecentChapter[] {
+  try {
+    return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function recordRecent(t: string, b: number, c: number) {
+  const recent = loadRecent().filter(
+    (r) => !(r.translation === t && r.book === b && r.chapter === c)
+  );
+  recent.unshift({ translation: t, book: b, chapter: c, ts: Date.now() });
+  localStorage.setItem(RECENT_KEY, JSON.stringify(recent.slice(0, MAX_RECENT)));
+}
+
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [confirmClear, setConfirmClear] = useState(false);
   const navigate = useNavigate();
   const { translation = "nasb", book, chapter } = useParams();
   const bookNum = Number(book);
@@ -18,6 +45,13 @@ export function CommandPalette() {
   const clearChapter = useMarkingStore((s) => s.clearChapter);
   const { undo, redo } = useMarkingStore();
   const clearSelection = useSelectionStore((s) => s.clearSelection);
+
+  // Record current chapter as recent
+  useEffect(() => {
+    if (bookNum && chapterNum) {
+      recordRecent(translation, bookNum, chapterNum);
+    }
+  }, [translation, bookNum, chapterNum]);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -40,6 +74,14 @@ export function CommandPalette() {
   const currentBook = getBookById(bookNum);
   const totalChapters = currentBook?.chapters ?? 1;
 
+  // Recent chapters (exclude current)
+  const recentChapters = useMemo(() => {
+    if (search) return [];
+    return loadRecent().filter(
+      (r) => !(r.translation === translation && r.book === bookNum && r.chapter === chapterNum)
+    ).slice(0, 5);
+  }, [open, search, translation, bookNum, chapterNum]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Filter books manually so cmdk doesn't interfere
   const filteredBooks = BOOKS.filter(
     (b) =>
@@ -51,7 +93,7 @@ export function CommandPalette() {
   return (
     <Command.Dialog
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={(v) => { setOpen(v); if (!v) setConfirmClear(false); }}
       label="Command palette"
       className="fixed inset-0 z-[100]"
       shouldFilter={false}
@@ -93,6 +135,27 @@ export function CommandPalette() {
                 {parsedRef.verseStart ? `:${parsedRef.verseStart}` : ""}
                 {parsedRef.verseEnd ? `-${parsedRef.verseEnd}` : ""}
               </Command.Item>
+            </Command.Group>
+          )}
+
+          {/* Recent chapters */}
+          {!search && recentChapters.length > 0 && (
+            <Command.Group heading="Recent">
+              {recentChapters.map((r) => {
+                const rBook = getBookById(r.book);
+                return (
+                  <Command.Item
+                    key={`${r.translation}-${r.book}-${r.chapter}`}
+                    onSelect={() => goTo(r.translation, r.book, r.chapter)}
+                    className="px-3 py-2 text-sm rounded-lg cursor-pointer aria-selected:bg-blue-50 aria-selected:text-blue-700"
+                  >
+                    {rBook?.name} {r.chapter}
+                    {r.translation !== translation && (
+                      <span className="ml-1.5 text-xs text-gray-400 uppercase">{r.translation}</span>
+                    )}
+                  </Command.Item>
+                );
+              })}
             </Command.Group>
           )}
 
@@ -187,13 +250,21 @@ export function CommandPalette() {
               </Command.Item>
               <Command.Item
                 onSelect={() => {
-                  clearChapter();
-                  setOpen(false);
+                  if (confirmClear) {
+                    clearChapter();
+                    setConfirmClear(false);
+                    setOpen(false);
+                  } else {
+                    setConfirmClear(true);
+                  }
                 }}
-                className="px-3 py-2 text-sm rounded-lg cursor-pointer aria-selected:bg-blue-50 aria-selected:text-blue-700 text-red-600"
+                className={`px-3 py-2 text-sm rounded-lg cursor-pointer aria-selected:bg-blue-50 aria-selected:text-blue-700 ${
+                  confirmClear ? "text-red-600 font-medium" : "text-red-600"
+                }`}
               >
-                Clear all marks in{" "}
-                {currentBook?.name} {chapterNum}
+                {confirmClear
+                  ? `Confirm: clear all marks in ${currentBook?.name} ${chapterNum}?`
+                  : `Clear all marks in ${currentBook?.name} ${chapterNum}`}
               </Command.Item>
             </Command.Group>
           )}

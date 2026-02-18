@@ -1,31 +1,22 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useEffect, useState, useRef, lazy, Suspense } from "react";
+import { useEffect, useState, useRef } from "react";
 import { fetchChapter } from "../lib/api";
 import { getBookById, BOOKS } from "../lib/books";
 import { BibleText } from "../components/BibleText";
-import { useSelectionStore } from "../store/selectionStore";
 import { BookSelector } from "../components/BookSelector";
 import { CommandPalette } from "../components/CommandPalette";
 import { BottomToolbar } from "../components/BottomToolbar";
-import { Glossary } from "../components/Glossary";
 import { KeyboardShortcuts } from "../components/KeyboardShortcuts";
-import { NoteEditor } from "../components/NoteEditor";
 import { AuthScreen } from "../components/AuthScreen";
 import { ProfileMenu } from "../components/ProfileMenu";
 import { useAuthStore } from "../store/authStore";
-import { useChatStore } from "../store/chatStore";
 import { useSwipeNavigation } from "../lib/useSwipeNavigation";
 import { TRANSLATIONS } from "../lib/translations";
 import type { BibleVerse } from "../lib/types";
 
-const ChatPanel = lazy(() =>
-  import("../components/ChatPanel").then((m) => ({ default: m.ChatPanel }))
-);
-
 export function BibleReader() {
   const { translation = "NASB", book, chapter } = useParams();
   const navigate = useNavigate();
-  const clearSelection = useSelectionStore((s) => s.clearSelection);
   const bookNum = Number(book);
   const chapterNum = Number(chapter);
   const [translationOpen, setTranslationOpen] = useState(false);
@@ -34,11 +25,8 @@ export function BibleReader() {
   const [verses, setVerses] = useState<BibleVerse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [dictionaryOpen, setDictionaryOpen] = useState(false);
-  const [notesOpen, setNotesOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const initAuth = useAuthStore((s) => s.init);
-  const toggleChat = useChatStore((s) => s.toggle);
 
   useEffect(() => {
     initAuth();
@@ -118,7 +106,7 @@ export function BibleReader() {
   );
 
   return (
-    <div className="min-h-screen bg-[#fafaf8]" onClick={() => clearSelection()}>
+    <div className="min-h-screen bg-[#fafaf8]">
       {/* Header */}
       <header className="sticky top-0 z-10 bg-[#fafaf8]/95 backdrop-blur border-b border-gray-200">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -199,22 +187,10 @@ export function BibleReader() {
         )}
       </main>
 
-
       <CommandPalette />
-      <BottomToolbar onOpenGlossary={() => setDictionaryOpen(true)} onOpenNotes={() => setNotesOpen(true)} onOpenChat={toggleChat} />
-      <Glossary open={dictionaryOpen} onClose={() => setDictionaryOpen(false)} book={bookNum} chapter={chapterNum} />
+      <BottomToolbar />
       <KeyboardShortcuts />
-      <NoteEditor
-        open={notesOpen}
-        onClose={() => setNotesOpen(false)}
-        translation={translation}
-        book={bookNum}
-        chapter={chapterNum}
-      />
       <AuthScreen open={authOpen} onClose={() => setAuthOpen(false)} />
-      <Suspense fallback={null}>
-        <ChatPanel onSignIn={() => { useChatStore.getState().close(); setAuthOpen(true); }} />
-      </Suspense>
     </div>
   );
 }

@@ -87,6 +87,12 @@ function BookList({
   currentBookId: number;
   onSelect: (id: number) => void;
 }) {
+  const activeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ block: "center" });
+  }, []);
+
   return (
     <div className="overflow-y-auto max-h-[70vh]">
       <div className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
@@ -95,6 +101,7 @@ function BookList({
       {BOOKS.filter((b) => b.id <= 39).map((book) => (
         <button
           key={book.id}
+          ref={book.id === currentBookId ? activeRef : undefined}
           onClick={() => onSelect(book.id)}
           className={`block w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 transition-colors bg-transparent border-none cursor-pointer ${
             book.id === currentBookId
@@ -111,6 +118,7 @@ function BookList({
       {BOOKS.filter((b) => b.id >= 40).map((book) => (
         <button
           key={book.id}
+          ref={book.id === currentBookId ? activeRef : undefined}
           onClick={() => onSelect(book.id)}
           className={`block w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 transition-colors bg-transparent border-none cursor-pointer ${
             book.id === currentBookId

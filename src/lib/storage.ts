@@ -81,12 +81,13 @@ export function saveMarkings(
   book: number,
   chapter: number,
   markings: Record<string, WordMarkings>
-): void {
+): boolean {
   const key = `${MARKINGS_PREFIX}${translation}:${book}:${chapter}`;
   try {
     localStorage.setItem(key, JSON.stringify(markings));
+    return true;
   } catch {
-    // localStorage full or unavailable
+    return false;
   }
 }
 

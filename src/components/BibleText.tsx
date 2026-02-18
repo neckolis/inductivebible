@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef, useState } from "react";
+import { useEffect, useCallback, useRef, useState, useMemo } from "react";
 import type { BibleVerse } from "../lib/types";
 import { WordSpan } from "./WordSpan";
 import { MarkContextMenu } from "./MarkContextMenu";
@@ -11,15 +11,9 @@ import {
   type WordId,
 } from "../store/selectionStore";
 import { useMarkingStore } from "../store/markingStore";
-import { useToolStore } from "../store/toolStore";
-import { useArrowStore } from "../store/arrowStore";
 import { useMemoryStore } from "../store/memoryStore";
 import { useSymbolStore } from "../store/symbolStore";
-import { useChatStore } from "../store/chatStore";
-import { hasAnyMarking, type WordMarkings, type ArrowConnection, parseSymbolValue } from "../lib/storage";
-import { ArrowOverlay } from "./ArrowOverlay";
-import { getBookById } from "../lib/books";
-import { ChatCircle } from "@phosphor-icons/react";
+import { hasAnyMarking, type WordMarkings, parseSymbolValue } from "../lib/storage";
 
 interface Props {
   verses: BibleVerse[];
@@ -42,7 +36,6 @@ interface ContextMenuState {
   verse: number;
   wordIndex: number;
   marking: WordMarkings;
-  connectedArrows: ArrowConnection[];
 }
 
 function parseVerseWords(verses: BibleVerse[]): WordInfo[][] {
@@ -72,27 +65,14 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
   const { anchor, focus, setSelection, extendSelection, clearSelection } =
     useSelectionStore();
   const setDragging = useSelectionStore((s) => s.setDragging);
-  const setSelectedWordTexts = useSelectionStore((s) => s.setSelectedWordTexts);
+  const setSelectedWords = useSelectionStore((s) => s.setSelectedWords);
   const { loadChapter, markings, addMarking, undo, redo, clearChapter } = useMarkingStore();
-  const paintBrush = useToolStore((s) => s.paintBrush);
-  const arrowMode = useToolStore((s) => s.arrowMode);
-  const arrowSource = useToolStore((s) => s.arrowSource);
-  const setArrowSource = useToolStore((s) => s.setArrowSource);
-  const activeColor = useToolStore((s) => s.activeColor);
-  const arrowStyle = useToolStore((s) => s.arrowStyle);
-  const arrowHeadStyle = useToolStore((s) => s.arrowHeadStyle);
-  const loadArrows = useArrowStore((s) => s.loadChapter);
-  const addArrow = useArrowStore((s) => s.addArrow);
-  const arrows = useArrowStore((s) => s.arrows);
   const recordMemory = useMemoryStore((s) => s.record);
   const { addSymbol, recordUsage } = useSymbolStore();
 
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [dragOverWord, setDragOverWord] = useState<string | null>(null);
-  const [askAiPos, setAskAiPos] = useState<{ x: number; y: number } | null>(null);
-  const setSelectionContext = useChatStore((s) => s.setSelectionContext);
-  const openChat = useChatStore((s) => s.open);
 
   // Drag-to-select state
   const dragStateRef = useRef<{ active: boolean; startWord: WordId | null; moved: boolean }>({
@@ -101,35 +81,44 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
     moved: false,
   });
 
-  const allVerseWords = parseVerseWords(verses);
+  // Touch long-press state
+  const touchPendingRef = useRef<{
+    word: WordId;
+    x: number;
+    y: number;
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
 
-  const flatWords: WordId[] = allVerseWords.flatMap((verseWords) =>
-    verseWords.map((w) => ({ verse: w.verse, wordIndex: w.wordIndex }))
+  const allVerseWords = useMemo(() => parseVerseWords(verses), [verses]);
+
+  const flatWords = useMemo<WordId[]>(
+    () => allVerseWords.flatMap((verseWords) =>
+      verseWords.map((w) => ({ verse: w.verse, wordIndex: w.wordIndex }))
+    ),
+    [allVerseWords]
   );
 
   useEffect(() => {
     loadChapter(translation, book, chapter);
-    loadArrows(translation, book, chapter);
     clearSelection();
-  }, [translation, book, chapter, loadChapter, loadArrows, clearSelection]);
+  }, [translation, book, chapter, loadChapter, clearSelection]);
 
-  // Derive selectedWordTexts from current selection range
+  // Derive selected words and texts from current selection range
   useEffect(() => {
-    if (!anchor || !focus) {
-      setAskAiPos(null);
-      return;
-    }
+    if (!anchor || !focus) return;
     const [start, end] = getSelectionRange(anchor, focus);
+    const words: WordId[] = [];
     const texts: string[] = [];
     for (const verseWords of allVerseWords) {
       for (const w of verseWords) {
         if (isWordInRange({ verse: w.verse, wordIndex: w.wordIndex }, start, end)) {
+          words.push({ verse: w.verse, wordIndex: w.wordIndex });
           const clean = w.word.replace(/[^a-zA-Z']/g, "");
           if (clean) texts.push(clean);
         }
       }
     }
-    setSelectedWordTexts(texts);
+    setSelectedWords(words, texts);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anchor, focus]);
 
@@ -292,61 +281,54 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
     return null;
   }
 
-  function applyPaintToWord(verse: number, wordIndex: number, word: string) {
-    if (!paintBrush) return;
-    addMarking(verse, wordIndex, paintBrush.type, paintBrush.value);
-    if (paintBrush.type === "symbol") {
-      recordMemory(word, paintBrush.value);
-      const parsed = parseSymbolValue(paintBrush.value);
-      if (parsed) {
-        recordUsage(parsed.icon, parsed.color, parsed.weight);
-      }
-    }
+  function startDrag(word: WordId) {
+    dragStateRef.current = { active: true, startWord: word, moved: false };
+    setDragging(true);
+    setSelection(word);
+    setContextMenu(null);
   }
 
   function handlePointerDown(e: React.PointerEvent) {
     const hit = getWordAtPoint(e.clientX, e.clientY);
-    if (!hit) return;
+    if (!hit) {
+      clearSelection();
+      setContextMenu(null);
+      return;
+    }
+    const word = { verse: hit.verse, wordIndex: hit.wordIndex };
 
-    // Prevent native text selection and scrolling on touch
     if (e.pointerType === "touch") {
-      e.preventDefault();
+      // Long-press to enter drag mode; quick tap selects on pointerup
+      // Don't preventDefault — let browser handle scroll via touch-action: pan-y
+      touchPendingRef.current = {
+        word,
+        x: e.clientX,
+        y: e.clientY,
+        timer: setTimeout(() => {
+          if (!touchPendingRef.current) return;
+          touchPendingRef.current = null;
+          startDrag(word);
+        }, 300),
+      };
+      return;
     }
 
-    // Arrow mode: first click sets source, second click creates arrow
-    if (arrowMode) {
-      if (!arrowSource) {
-        setArrowSource({ verse: hit.verse, wordIndex: hit.wordIndex });
-      } else {
-        // Don't create arrow to self
-        if (arrowSource.verse !== hit.verse || arrowSource.wordIndex !== hit.wordIndex) {
-          addArrow({
-            fromVerse: arrowSource.verse,
-            fromWord: arrowSource.wordIndex,
-            toVerse: hit.verse,
-            toWord: hit.wordIndex,
-            color: activeColor,
-            style: arrowStyle,
-            headStyle: arrowHeadStyle,
-          });
-        }
-        setArrowSource(null);
+    // Mouse: immediate selection
+    startDrag(word);
+  }
+
+  function handlePointerMove(e: React.PointerEvent) {
+    // Cancel touch-pending if finger moved too far (user is scrolling)
+    if (touchPendingRef.current) {
+      const dx = e.clientX - touchPendingRef.current.x;
+      const dy = e.clientY - touchPendingRef.current.y;
+      if (dx * dx + dy * dy > 100) {
+        clearTimeout(touchPendingRef.current.timer);
+        touchPendingRef.current = null;
       }
       return;
     }
 
-    dragStateRef.current = { active: true, startWord: { verse: hit.verse, wordIndex: hit.wordIndex }, moved: false };
-    setDragging(true);
-
-    if (paintBrush) {
-      applyPaintToWord(hit.verse, hit.wordIndex, hit.word);
-    } else {
-      setSelection({ verse: hit.verse, wordIndex: hit.wordIndex });
-      setContextMenu(null);
-    }
-  }
-
-  function handlePointerMove(e: React.PointerEvent) {
     if (!dragStateRef.current.active) return;
     const hit = getWordAtPoint(e.clientX, e.clientY);
     if (!hit) return;
@@ -356,27 +338,35 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
       dragStateRef.current.moved = true;
     }
 
-    if (paintBrush) {
-      applyPaintToWord(hit.verse, hit.wordIndex, hit.word);
-    } else {
-      extendSelection({ verse: hit.verse, wordIndex: hit.wordIndex });
-    }
+    extendSelection({ verse: hit.verse, wordIndex: hit.wordIndex });
   }
 
-  function handlePointerUp(e: React.PointerEvent) {
-    if (!dragStateRef.current.active) return;
-    const wasDrag = dragStateRef.current.moved;
-    dragStateRef.current.active = false;
-    setDragging(false);
-
-    // Show "Ask AI" floating button if user dragged a selection (not paint mode, not arrow mode)
-    if (wasDrag && !paintBrush && !arrowMode) {
-      const { anchor: a, focus: f } = useSelectionStore.getState();
-      if (a && f) {
-        setAskAiPos({ x: e.clientX, y: e.clientY - 40 });
-      }
+  function handlePointerUp(_e: React.PointerEvent) {
+    // Touch tap: finger lifted before hold timer — select word immediately
+    if (touchPendingRef.current) {
+      clearTimeout(touchPendingRef.current.timer);
+      const word = touchPendingRef.current.word;
+      touchPendingRef.current = null;
+      setSelection(word);
+      setContextMenu(null);
+      return;
     }
 
+    if (!dragStateRef.current.active) return;
+    dragStateRef.current.active = false;
+    setDragging(false);
+  }
+
+  function handlePointerCancel() {
+    // Browser took over the gesture (e.g., scroll) — clean up
+    if (touchPendingRef.current) {
+      clearTimeout(touchPendingRef.current.timer);
+      touchPendingRef.current = null;
+    }
+    if (dragStateRef.current.active) {
+      dragStateRef.current.active = false;
+      setDragging(false);
+    }
   }
 
   function handleContextMenu(
@@ -385,14 +375,9 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
     wordIndex: number
   ) {
     const marking = markings[`${verse}:${wordIndex}`];
-    const connectedArrows = arrows.filter(
-      (a) =>
-        (a.fromVerse === verse && a.fromWord === wordIndex) ||
-        (a.toVerse === verse && a.toWord === wordIndex)
-    );
-    if ((!marking || !hasAnyMarking(marking)) && connectedArrows.length === 0) return;
+    if (!marking || !hasAnyMarking(marking)) return;
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, verse, wordIndex, marking: marking ?? {}, connectedArrows });
+    setContextMenu({ x: e.clientX, y: e.clientY, verse, wordIndex, marking: marking ?? {} });
   }
 
   function handleDragOver(e: React.DragEvent, verse: number, wordIndex: number) {
@@ -431,32 +416,6 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
     }
   }
 
-  function handleAskAi() {
-    if (!anchor || !focus) return;
-    const [start, end] = getSelectionRange(anchor, focus);
-    const bookInfo = getBookById(book);
-    const bookName = bookInfo?.name ?? `Book ${book}`;
-    const texts: string[] = [];
-    for (const verseWords of allVerseWords) {
-      for (const w of verseWords) {
-        if (isWordInRange({ verse: w.verse, wordIndex: w.wordIndex }, start, end)) {
-          texts.push(w.word);
-        }
-      }
-    }
-    setSelectionContext({
-      bookName,
-      book,
-      chapter,
-      startVerse: start.verse,
-      endVerse: end.verse,
-      translation,
-      selectedText: texts.join(" "),
-    });
-    setAskAiPos(null);
-    openChat();
-  }
-
   return (
     <div
       ref={containerRef}
@@ -464,12 +423,9 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      onClick={(e) => {
-        e.stopPropagation();
-        if ((e.target as HTMLElement).dataset.verse === undefined) {
-          clearSelection();
-          setContextMenu(null);
-        }
+      onPointerCancel={handlePointerCancel}
+      onClick={() => {
+        setContextMenu(null);
       }}
     >
       {allVerseWords.map((verseWords, vi) => {
@@ -567,7 +523,6 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
           verse={contextMenu.verse}
           wordIndex={contextMenu.wordIndex}
           marking={contextMenu.marking}
-          connectedArrows={contextMenu.connectedArrows}
           onClose={() => setContextMenu(null)}
           onClearChapter={() => {
             setContextMenu(null);
@@ -587,24 +542,6 @@ export function BibleText({ verses, translation, book, chapter, onPrevChapter, o
         />
       )}
 
-      {askAiPos && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            handleAskAi();
-          }}
-          className="fixed z-50 flex items-center gap-1 px-2.5 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium rounded-lg shadow-lg border-none cursor-pointer transition-colors"
-          style={{
-            left: Math.min(askAiPos.x, window.innerWidth - 100),
-            top: Math.max(askAiPos.y, 8),
-          }}
-        >
-          <ChatCircle size={14} weight="fill" />
-          Ask AI
-        </button>
-      )}
-
-      <ArrowOverlay containerRef={containerRef} />
       <UndoToast />
     </div>
   );

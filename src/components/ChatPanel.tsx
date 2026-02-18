@@ -15,9 +15,14 @@ const SUGGESTED_PROMPTS = [
   "Who were the 12 disciples?",
 ];
 
+const MIN_WIDTH = 320;
+const MAX_WIDTH = 900;
+
 export function ChatPanel({ onSignIn }: Props) {
   const {
     isOpen,
+    chatWidth,
+    setChatWidth,
     close,
     conversations,
     activeConversationId,
@@ -35,6 +40,7 @@ export function ChatPanel({ onSignIn }: Props) {
   const user = useAuthStore((s) => s.user);
   const [input, setInput] = useState("");
   const [showPicker, setShowPicker] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -96,6 +102,28 @@ export function ChatPanel({ onSignIn }: Props) {
     }
   }
 
+  function handleResizeStart(e: React.MouseEvent) {
+    e.preventDefault();
+    setIsResizing(true);
+    const startX = e.clientX;
+    const startWidth = chatWidth;
+
+    function onMove(ev: MouseEvent) {
+      const delta = startX - ev.clientX;
+      const newWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, startWidth + delta));
+      setChatWidth(newWidth);
+    }
+
+    function onUp() {
+      setIsResizing(false);
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
+
   const activeConv = conversations.find((c) => c.id === activeConversationId);
   const title = activeConv?.title || "New Chat";
 
@@ -111,10 +139,18 @@ export function ChatPanel({ onSignIn }: Props) {
 
       {/* Panel */}
       <div
-        className={`fixed top-0 right-0 bottom-0 z-40 w-full sm:w-[420px] bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-out ${
+        className={`fixed top-0 right-0 bottom-0 z-40 bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-out ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
+        style={{ width: window.innerWidth < 640 ? "100%" : chatWidth }}
       >
+        {/* Resize handle (desktop only) */}
+        <div
+          className="hidden sm:block absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-300/50 transition-colors z-10"
+          style={isResizing ? { backgroundColor: "rgba(147, 197, 253, 0.5)" } : undefined}
+          onMouseDown={handleResizeStart}
+        />
+
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 bg-gray-50 shrink-0">
           <div className="flex-1 min-w-0 relative" ref={pickerRef}>

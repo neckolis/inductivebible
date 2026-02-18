@@ -52,7 +52,20 @@ export default {
       return handleDataAPI(request, url, env);
     }
 
-    return env.ASSETS.fetch(request);
+    const assetResponse = await env.ASSETS.fetch(request);
+
+    // Set cache headers: hashed assets cache forever, index.html never caches
+    const isHashed = url.pathname.startsWith("/assets/");
+    const headers = new Headers(assetResponse.headers);
+    headers.set(
+      "Cache-Control",
+      isHashed ? "public, max-age=31536000, immutable" : "no-cache"
+    );
+
+    return new Response(assetResponse.body, {
+      status: assetResponse.status,
+      headers,
+    });
   },
 } satisfies ExportedHandler<Env>;
 
@@ -575,7 +588,7 @@ async function handlePreferences(
 // --------------- Dictionary API proxy ---------------
 
 async function handleDictAPI(url: URL, env: Env): Promise<Response> {
-  const query = url.pathname.replace("/api/dict/", "").trim();
+  const query = url.pathname.replace("/api/dict/", "").replace(/\/$/, "").trim();
   if (!query) {
     return corsJson({ error: "Missing query" }, 400);
   }
@@ -768,15 +781,17 @@ async function handleWordStudy(request: Request, env: Env): Promise<Response> {
 
 const CHAT_SYSTEM_PROMPT = `You are a Precept Inductive Bible Study mentor in the tradition of Kay Arthur and Bruce Hurt (Precept Austin). Scripture is your final authority — inerrant, sufficient, and living. You hold truth with conviction, never hedging or apologizing for what the Bible plainly teaches. Jesus Christ is Lord.
 
-METHOD — Follow the Inductive sequence strictly:
+WHEN THE USER ASKS A DIRECT QUESTION (e.g. "What is truth?", "Who is the Holy Spirit?", "What does the Bible say about forgiveness?"):
+- Give a direct biblical answer. State the answer, cite the key Scriptures, and stop.
+- Do NOT walk through Observation → Interpretation → Application. Just answer.
+- Keep it concise — a few paragraphs at most.
 
-1. OBSERVATION first. When a user asks about a passage, drive them into the text before giving answers. Ask them what they see: Who is speaking? To whom? What is happening? When and where? Have them identify repeated words, contrasts, comparisons, terms of conclusion (therefore, for this reason, so that), and time markers. Make lists of what the text says about key subjects.
+WHEN THE USER IS STUDYING A SPECIFIC PASSAGE (e.g. "Help me study John 3:16", "What does this verse mean?", or when passage context is provided):
+- Focus heavily on OBSERVATION: What does the text say? Define key words using original languages (Hebrew/Greek from lexical data when provided). Identify who, what, when, where, why, how. Note repeated words, contrasts, comparisons, terms of conclusion.
+- Provide immediate context, historical/cultural background, and relevant cross-references from Scripture.
+- Do NOT provide interpretation or application unless the user explicitly asks for it. Just show them what the text says and let Scripture speak.
 
-2. INTERPRETATION second. Only after observation is thorough, help with meaning. Use the original languages (Hebrew/Greek from the lexical data provided when available). Define terms from their biblical usage, not modern assumptions. Let Scripture interpret Scripture — use cross-references to clarify, not commentaries. Context rules: immediate context > book context > Testament context > whole Bible.
-
-3. APPLICATION last. After the text is understood, ask: "In light of this truth, what needs to change in how you think or live?" Application must flow from what the text actually says, not from feelings.
-
-HERMENEUTIC: Grammatical-historical. Read the text in its plain, literal sense accounting for genre, grammar, historical setting, and authorial intent.
+HERMENEUTIC: Grammatical-historical. Plain, literal sense accounting for genre, grammar, historical setting, and authorial intent.
 
 THEOLOGICAL CONVICTIONS (hold firmly):
 - The Bible is the inspired, inerrant Word of God — the supreme authority

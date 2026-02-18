@@ -9,18 +9,20 @@ interface SelectionState {
   anchor: WordId | null;
   focus: WordId | null;
   isDragging: boolean;
+  selectedWords: WordId[];
   selectedWordTexts: string[];
   setSelection: (anchor: WordId, focus?: WordId) => void;
   extendSelection: (focus: WordId) => void;
   clearSelection: () => void;
   setDragging: (v: boolean) => void;
-  setSelectedWordTexts: (texts: string[]) => void;
+  setSelectedWords: (words: WordId[], texts: string[]) => void;
 }
 
 export const useSelectionStore = create<SelectionState>((set) => ({
   anchor: null,
   focus: null,
   isDragging: false,
+  selectedWords: [],
   selectedWordTexts: [],
 
   setSelection: (anchor, focus) =>
@@ -29,11 +31,11 @@ export const useSelectionStore = create<SelectionState>((set) => ({
   extendSelection: (focus) =>
     set((state) => (state.anchor ? { focus } : {})),
 
-  clearSelection: () => set({ anchor: null, focus: null, selectedWordTexts: [] }),
+  clearSelection: () => set({ anchor: null, focus: null, selectedWords: [], selectedWordTexts: [] }),
 
   setDragging: (v) => set({ isDragging: v }),
 
-  setSelectedWordTexts: (texts) => set({ selectedWordTexts: texts }),
+  setSelectedWords: (words, texts) => set({ selectedWords: words, selectedWordTexts: texts }),
 }));
 
 /**

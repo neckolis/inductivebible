@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import type { WordMarkings } from "../lib/storage";
 
 interface Props {
@@ -7,6 +8,13 @@ interface Props {
 }
 
 export function ClearConfirmDialog({ markings, onConfirm, onCancel }: Props) {
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onCancel();
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [onCancel]);
   const entries = Object.values(markings);
   const total = entries.length;
 

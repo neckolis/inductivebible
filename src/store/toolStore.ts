@@ -1,6 +1,4 @@
 import { create } from "zustand";
-import type { MarkingType } from "./markingStore";
-import type { ArrowStyle, ArrowHeadStyle } from "../lib/storage";
 
 export const PRESET_COLORS = [
   { hex: "#ef4444", name: "Red" },
@@ -25,40 +23,17 @@ function saveCustomColors(colors: string[]) {
   } catch {}
 }
 
-interface ArrowSource {
-  verse: number;
-  wordIndex: number;
-}
-
 interface ToolState {
-  paintBrush: { type: MarkingType; value: string } | null;
   activeColor: string;
   customColors: string[];
-  arrowMode: boolean;
-  arrowSource: ArrowSource | null;
-  arrowStyle: ArrowStyle;
-  arrowHeadStyle: ArrowHeadStyle;
-  setPaintBrush: (type: MarkingType, value: string) => void;
-  clearPaintBrush: () => void;
   setActiveColor: (color: string) => void;
   addCustomColor: (color: string) => void;
   removeCustomColor: (color: string) => void;
-  setArrowMode: (on: boolean) => void;
-  setArrowSource: (source: ArrowSource | null) => void;
-  setArrowStyle: (style: ArrowStyle) => void;
-  setArrowHeadStyle: (style: ArrowHeadStyle) => void;
 }
 
 export const useToolStore = create<ToolState>((set) => ({
-  paintBrush: null,
   activeColor: PRESET_COLORS[0].hex,
   customColors: loadCustomColors(),
-  arrowMode: false,
-  arrowSource: null,
-  arrowStyle: "solid" as ArrowStyle,
-  arrowHeadStyle: "end" as ArrowHeadStyle,
-  setPaintBrush: (type, value) => set({ paintBrush: { type, value }, arrowMode: false, arrowSource: null }),
-  clearPaintBrush: () => set({ paintBrush: null }),
   setActiveColor: (color) => set({ activeColor: color }),
   addCustomColor: (color) =>
     set((state) => {
@@ -78,13 +53,4 @@ export const useToolStore = create<ToolState>((set) => ({
       }
       return newState;
     }),
-  setArrowMode: (on) =>
-    set((state) => ({
-      arrowMode: on,
-      arrowSource: null,
-      paintBrush: on ? null : state.paintBrush,
-    })),
-  setArrowSource: (source) => set({ arrowSource: source }),
-  setArrowStyle: (style) => set({ arrowStyle: style }),
-  setArrowHeadStyle: (style) => set({ arrowHeadStyle: style }),
 }));

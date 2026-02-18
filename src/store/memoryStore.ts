@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { syncMemoryToCloud, fetchMemoryFromCloud } from "../lib/sync";
 
 const STORAGE_KEY = "word-symbol-memory";
-const SUGGESTION_THRESHOLD = 1;
+const SUGGESTION_THRESHOLD = 3;
 
 export interface WordAssociation {
   word: string;

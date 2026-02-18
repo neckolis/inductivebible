@@ -163,23 +163,23 @@ export function Glossary({ open, onClose, book, chapter }: Props) {
   const anchor = useSelectionStore((s) => s.anchor);
   const focus = useSelectionStore((s) => s.focus);
   const selectedWordTexts = useSelectionStore((s) => s.selectedWordTexts);
-  const prevOpenRef = useRef(false);
+  const fetchIdRef = useRef(0);
 
+  // Snapshot selection data when modal opens, then fetch
   useEffect(() => {
-    // Only trigger on open transition (false → true)
-    if (!open || prevOpenRef.current) {
-      prevOpenRef.current = open;
-      if (!open) setEntries([]);
+    if (!open) {
+      setEntries([]);
+      setLoading(false);
       return;
     }
-    prevOpenRef.current = true;
 
     if (!anchor || !focus || selectedWordTexts.length === 0) return;
 
     const [start, end] = getSelectionRange(anchor, focus);
     const isOT = book <= 39;
+    const words = [...selectedWordTexts]; // snapshot
+    const id = ++fetchIdRef.current;
 
-    let cancelled = false;
     setLoading(true);
     setEntries([]);
 
@@ -187,7 +187,7 @@ export function Glossary({ open, onClose, book, chapter }: Props) {
       try {
         // 1. Fetch KJV chapter to get Strong's numbers
         const kjvRes = await fetch(`/api/bible/KJV/${book}/${chapter}/`);
-        if (!kjvRes.ok || cancelled) { setLoading(false); return; }
+        if (!kjvRes.ok || id !== fetchIdRef.current) { setLoading(false); return; }
         const kjvVerses = (await kjvRes.json()) as { verse: number; text: string }[];
 
         // 2. Build word→Strong's mapping from selected verses
@@ -202,13 +202,13 @@ export function Glossary({ open, onClose, book, chapter }: Props) {
           }
         }
 
-        if (cancelled) return;
+        if (id !== fetchIdRef.current) return;
 
         // 3. For each selected word, find its Strong's number and fetch definition
         const seen = new Set<string>();
         const lookups: Promise<WordStudyEntry | null>[] = [];
 
-        for (const rawWord of selectedWordTexts) {
+        for (const rawWord of words) {
           const clean = rawWord.replace(/[^a-zA-Z']/g, "").toLowerCase();
           if (!clean || clean.length < 2) continue;
 
@@ -229,17 +229,15 @@ export function Glossary({ open, onClose, book, chapter }: Props) {
         }
 
         const results = await Promise.all(lookups);
-        if (!cancelled) {
+        if (id === fetchIdRef.current) {
           setEntries(results.filter((r): r is WordStudyEntry => r !== null));
           setLoading(false);
         }
       } catch {
-        if (!cancelled) setLoading(false);
+        if (id === fetchIdRef.current) setLoading(false);
       }
     })();
-
-    return () => { cancelled = true; };
-  }, [open, anchor, focus, selectedWordTexts, book, chapter]);
+  }, [open]);
 
   if (!open) return null;
 

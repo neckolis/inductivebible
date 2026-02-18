@@ -38,7 +38,7 @@ function IconButton({ name, Icon, activeColor, weight, onPick }: {
         );
       }}
       className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 transition-colors border-none cursor-pointer bg-transparent"
-      title={name}
+      title={name.replace(/([A-Z])/g, " $1").trim()}
     >
       <Icon size={18} color={activeColor} weight="regular" />
     </button>
@@ -46,16 +46,22 @@ function IconButton({ name, Icon, activeColor, weight, onPick }: {
 }
 
 /** Button for Recent — renders with the stored color and weight */
-function StoredSymbolButton({ sym, Icon, onApply }: {
+function StoredSymbolButton({ sym, Icon, onApply, onRemove }: {
   sym: SymbolDef;
   Icon: ReturnType<typeof getIconComponent>;
   onApply: (value: string) => void;
+  onRemove: (sym: SymbolDef) => void;
 }) {
   if (!Icon) return null;
   const value = formatSymbolValue(sym.icon, sym.color, sym.weight);
+  const label = sym.label || sym.icon.replace(/([A-Z])/g, " $1").trim();
   return (
     <button
       onClick={() => onApply(value)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onRemove(sym);
+      }}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.setData(
@@ -64,7 +70,7 @@ function StoredSymbolButton({ sym, Icon, onApply }: {
         );
       }}
       className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 transition-colors border-none cursor-pointer bg-transparent"
-      title={`${sym.icon} (${sym.color})`}
+      title={`${label} (right-click to remove)`}
     >
       <Icon size={18} color={sym.color} weight={sym.weight as Weight} />
     </button>
@@ -84,6 +90,7 @@ export function IconPicker({ onSelect }: Props) {
   const addCustomColor = useToolStore((s) => s.addCustomColor);
   const removeCustomColor = useToolStore((s) => s.removeCustomColor);
   const symbols = useSymbolStore((s) => s.symbols);
+  const removeSymbol = useSymbolStore((s) => s.removeSymbol);
   const selectedWordTexts = useSelectionStore((s) => s.selectedWordTexts);
   const getAllSuggestions = useMemoryStore((s) => s.getAllSuggestions);
   const colorInputRef = useRef<HTMLInputElement>(null);
@@ -94,12 +101,15 @@ export function IconPicker({ onSelect }: Props) {
     return getAllSuggestions(selectedWordTexts);
   }, [selectedWordTexts, getAllSuggestions]);
 
-  // Recent: full SymbolDef entries with usage, preserving stored color/weight, max 16
+  // Recent: show used symbols first, fall back to defaults for new users
   const recentSymbols = useMemo(() => {
-    return [...symbols]
+    const used = [...symbols]
       .filter((s) => s.lastUsed > 0)
       .sort((a, b) => b.lastUsed - a.lastUsed || b.usageCount - a.usageCount)
       .slice(0, MAX_RECENT);
+    // Show defaults if nothing has been used yet
+    if (used.length === 0) return symbols.slice(0, MAX_RECENT);
+    return used;
   }, [symbols]);
 
   // Search results using tag-aware search
@@ -200,6 +210,7 @@ export function IconPicker({ onSelect }: Props) {
                     sym={sym}
                     Icon={Icon}
                     onApply={onSelect}
+                    onRemove={(s) => removeSymbol(s.icon, s.color, s.weight)}
                   />
                 );
               })}
@@ -263,7 +274,7 @@ export function IconPicker({ onSelect }: Props) {
               ref={colorInputRef}
               type="color"
               value={activeColor}
-              className="absolute opacity-0 w-0 h-0 pointer-events-none"
+              className="absolute -left-[9999px] w-px h-px pointer-events-none opacity-0"
               onChange={(e) => {
                 addCustomColor(e.target.value);
               }}

@@ -20,7 +20,7 @@ const SHORTCUT_GROUPS = [
       { keys: ["\u2318", "U"], desc: "Cycle underline style" },
       { keys: ["C"], desc: "Clear all marks from selection" },
       { keys: ["\u232B"], desc: "Remove marks from selection" },
-      { keys: ["G"], desc: "Open dictionary" },
+      { keys: ["Enter"], desc: "Quick-apply top suggestion" },
     ],
   },
   {
@@ -38,7 +38,6 @@ const SHORTCUT_GROUPS = [
       { keys: ["\u2318", "K"], desc: "Command palette" },
       { keys: ["\u2318", "Z"], desc: "Undo" },
       { keys: ["\u2318", "\u21E7", "Z"], desc: "Redo" },
-      { keys: ["N"], desc: "Open notes" },
       { keys: ["?"], desc: "Show this help" },
     ],
   },
